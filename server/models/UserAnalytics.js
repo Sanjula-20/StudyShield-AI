@@ -4,10 +4,13 @@ const userAnalyticsSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
   totalFocusedTime: { type: Number, default: 0 }, // in minutes
   sessionsCompleted: { type: Number, default: 0 },
+  earlyCompletedSessions: { type: Number, default: 0 },
   interruptedSessions: { type: Number, default: 0 },
+  totalSessions: { type: Number, default: 0 },
   averageScore: { type: Number, default: 0 },
   streak: { type: Number, default: 0 },
   lastSessionDate: { type: Date },
+  createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 

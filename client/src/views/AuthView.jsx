@@ -39,14 +39,14 @@ export default function AuthView({ onAuthSuccess }) {
           width: '64px',
           height: '64px',
           borderRadius: '20px',
-          background: 'linear-gradient(135deg, #00f2fe 0%, #7f00ff 100%)',
+          background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
           margin: '0 auto 20px auto',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 0 30px rgba(0, 242, 254, 0.4)'
+          boxShadow: '0 0 24px var(--primary-glow)'
         }}>
-          <Shield size={36} color="#040914" />
+          <Shield size={36} color="#ffffff" />
         </div>
 
         <h2 style={{ fontSize: '1.75rem', fontWeight: '800', marginBottom: '8px' }}>

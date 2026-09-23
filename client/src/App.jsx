@@ -66,11 +66,16 @@ export default function App() {
 
   const handleSessionCompleted = async (sessionId, actualDuration, earlyCompletion) => {
     try {
-      const res = await api.completeSession(sessionId, actualDuration, earlyCompletion);
-      setAssessmentSession(res.session);
+      const cleanId = typeof sessionId === 'object' ? (sessionId._id || sessionId.id) : sessionId;
+      const res = await api.completeSession(cleanId, actualDuration, earlyCompletion);
+      setAssessmentSession(res.session || (typeof sessionId === 'object' ? sessionId : currentSession));
       setCurrentSession(null);
     } catch (err) {
       console.error('Failed to complete session', err);
+      if (currentSession) {
+        setAssessmentSession(currentSession);
+        setCurrentSession(null);
+      }
     }
   };
 
@@ -134,7 +139,7 @@ export default function App() {
     }
 
     if (activeTab === 'analytics') {
-      return <AnalyticsView />;
+      return <AnalyticsView onStartFocus={() => setIsCreateModalOpen(true)} />;
     }
 
     if (activeTab === 'profile') {

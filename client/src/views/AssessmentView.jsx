@@ -11,16 +11,18 @@ export default function AssessmentView({ session, onAssessmentComplete }) {
   const [submitting, setSubmitting] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState(null);
 
+  const sessId = session?._id || session?.id;
+
   useEffect(() => {
-    initAssessment();
-  }, [session._id]);
+    if (sessId) initAssessment();
+  }, [sessId]);
 
   const initAssessment = async () => {
     setLoading(true);
     setError('');
     try {
       const data = await api.generateAssessment({
-        sessionId: session._id,
+        sessionId: sessId,
         topic: session.topic,
         subtopic: session.subtopic,
         learningGoal: session.learningGoal
@@ -113,14 +115,49 @@ export default function AssessmentView({ session, onAssessmentComplete }) {
         ) : (
           /* QUESTION FORM */
           <form onSubmit={handleSubmitAnswer} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div className="glass-panel" style={{ padding: '14px', background: 'rgba(15, 23, 42, 0.6)' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'var(--primary)', textTransform: 'uppercase', marginBottom: '6px' }}>
-                Scenario Question ({assessment.difficulty || 'Intermediate'})
+            <div className="glass-panel" style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.7)', border: '1px solid var(--primary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="badge badge-purple" style={{ textTransform: 'capitalize' }}>
+                    {assessment.assessmentType?.replace('_', ' ') || 'Scenario Analysis'}
+                  </span>
+                  <span className="badge badge-cyan" style={{ textTransform: 'capitalize' }}>
+                    {assessment.difficulty || 'Intermediate'} Difficulty
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', fontWeight: '600' }}>
+                  AI Outcome Verification
+                </span>
               </div>
-              <p style={{ fontSize: '0.92rem', fontWeight: '600', lineHeight: '1.5', color: 'var(--text-main)' }}>
+
+              <p style={{ fontSize: '0.95rem', fontWeight: '600', lineHeight: '1.55', color: 'var(--text-main)', margin: '8px 0 12px 0' }}>
                 {assessment.question}
               </p>
+
+              {/* Expected Concept Chips */}
+              {assessment.expectedConcepts && assessment.expectedConcepts.length > 0 && (
+                <div style={{ paddingTop: '10px', borderTop: '1px solid var(--glass-border)' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: '800', marginBottom: '4px' }}>
+                    Concepts to address in your answer:
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {assessment.expectedConcepts.map((concept, cIdx) => (
+                      <span key={cIdx} style={{
+                        fontSize: '0.72rem',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        background: 'rgba(99, 102, 241, 0.15)',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        color: '#818cf8'
+                      }}>
+                        {concept}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
 
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', marginBottom: '6px' }}>

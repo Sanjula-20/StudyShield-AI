@@ -65,5 +65,5 @@ export const api = {
   // Analytics
   getAnalytics: () => request('/analytics'),
   getTopicMastery: () => request('/analytics/topics'),
-  getHistory: () => request('/analytics/history')
+  getHistory: (status = '', search = '') => request(`/analytics/history?status=${encodeURIComponent(status || '')}&search=${encodeURIComponent(search || '')}`)
 };

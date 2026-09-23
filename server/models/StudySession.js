@@ -35,6 +35,10 @@ const studySessionSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+studySessionSchema.index({ userId: 1, status: 1 });
+studySessionSchema.index({ userId: 1, createdAt: -1 });
+studySessionSchema.index({ userId: 1, topic: 1 });
+
 studySessionSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();

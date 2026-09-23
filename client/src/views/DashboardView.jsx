@@ -42,7 +42,7 @@ export default function DashboardView({ user, onStartSessionClick, onResumeActiv
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', maxWidth: '1100px', margin: '0 auto' }}>
       {/* Welcome Banner */}
-      <div className="glass-panel" style={{ padding: '24px 28px', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(99, 102, 241, 0.12) 100%)' }}>
+      <div className="glass-panel" style={{ padding: '24px 28px', background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--primary-light) 100%)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
@@ -59,8 +59,8 @@ export default function DashboardView({ user, onStartSessionClick, onResumeActiv
 
           {activeSession ? (
             <div style={{
-              background: 'rgba(99, 102, 241, 0.15)',
-              border: '1px solid var(--primary)',
+              background: 'var(--primary-light)',
+              border: '1px solid var(--glass-border-hover)',
               borderRadius: 'var(--radius-md)',
               padding: '14px 18px',
               display: 'flex',
@@ -153,7 +153,7 @@ export default function DashboardView({ user, onStartSessionClick, onResumeActiv
                     <div style={{
                       width: `${t.masteryScore}%`,
                       height: '100%',
-                      background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%)',
+                      background: 'linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%)',
                       borderRadius: '4px'
                     }}></div>
                   </div>

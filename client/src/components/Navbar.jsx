@@ -1,9 +1,20 @@
-import React from 'react';
-import { Shield, Smartphone, Monitor, LogOut, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, Smartphone, Monitor, LogOut, Sun, Moon } from 'lucide-react';
 
 export default function Navbar({ user, isPhoneFrame, setIsPhoneFrame, activeTab, setActiveTab, onLogout }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem('studyshield_theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('studyshield_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   return (
-    <header className="glass-panel" style={{ borderRadius: 0, borderTop: 0, borderLeft: 0, borderRight: 0, padding: '12px 20px', sticky: 'top', zIndex: 900 }}>
+    <header className="glass-panel" style={{ borderRadius: 0, borderTop: 0, borderLeft: 0, borderRight: 0, padding: '12px 20px', position: 'sticky', top: 0, zIndex: 900 }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         {/* Brand Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -11,20 +22,20 @@ export default function Navbar({ user, isPhoneFrame, setIsPhoneFrame, activeTab,
             width: '38px',
             height: '38px',
             borderRadius: '12px',
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+            background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 4px 14px rgba(99, 102, 241, 0.4)'
+            boxShadow: '0 4px 14px var(--primary-glow)'
           }}>
             <Shield size={22} color="#fff" />
           </div>
           <div>
-            <h1 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: '#fff' }}>
+            <h1 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: 'var(--text-main)' }}>
               StudyShield
             </h1>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Intelligent Study Workspace
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: '700' }}>
+              Intelligent Focus Workspace
             </span>
           </div>
         </div>
@@ -56,8 +67,19 @@ export default function Navbar({ user, isPhoneFrame, setIsPhoneFrame, activeTab,
           </nav>
         )}
 
-        {/* Mode Switcher & User Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Mode Switchers & User Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Calm Theme Switcher Button */}
+          <button
+            onClick={toggleTheme}
+            className="btn btn-secondary"
+            style={{ padding: '6px 10px', minHeight: '38px', borderRadius: '10px' }}
+            title={theme === 'dark' ? 'Switch to Clean Light Theme' : 'Switch to Calm Dark Theme'}
+          >
+            {theme === 'dark' ? <Sun size={18} color="#f59e0b" /> : <Moon size={18} color="#0284c7" />}
+          </button>
+
+          {/* Phone Frame Toggle */}
           <button
             onClick={() => setIsPhoneFrame(!isPhoneFrame)}
             className="btn btn-secondary"
@@ -65,15 +87,11 @@ export default function Navbar({ user, isPhoneFrame, setIsPhoneFrame, activeTab,
             title="Toggle between Fullscreen Responsive View and Phone Chassis Simulator"
           >
             {isPhoneFrame ? <Monitor size={16} /> : <Smartphone size={16} />}
-            <span>{isPhoneFrame ? 'Expand Full View' : 'Phone Chassis View'}</span>
+            <span>{isPhoneFrame ? 'Full View' : 'Phone View'}</span>
           </button>
 
           {user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ textAlign: 'right', display: 'none', smDisplay: 'block' }}>
-                <div style={{ fontWeight: '700', fontSize: '0.85rem' }}>{user.name}</div>
-                <span className="badge badge-emerald" style={{ padding: '2px 6px', fontSize: '0.65rem' }}>Student</span>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 onClick={onLogout}
                 className="btn btn-danger"

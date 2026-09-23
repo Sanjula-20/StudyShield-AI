@@ -22,13 +22,13 @@ export default function ProfileView({ user, onLogout }) {
             width: '72px',
             height: '72px',
             borderRadius: '24px',
-            background: 'linear-gradient(135deg, #00f2fe 0%, #7f00ff 100%)',
+            background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 0 30px rgba(0, 242, 254, 0.4)'
+            boxShadow: '0 0 24px var(--primary-glow)'
           }}>
-            <User size={38} color="#040914" />
+            <User size={38} color="#ffffff" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -51,7 +51,7 @@ export default function ProfileView({ user, onLogout }) {
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontWeight: '700', fontSize: '0.9rem' }}>Usage Access Permission</div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>Detects active foreground applications to enforce study restrictions.</div>
@@ -61,7 +61,7 @@ export default function ProfileView({ user, onLogout }) {
             </button>
           </div>
 
-          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontWeight: '700', fontSize: '0.9rem' }}>Display Over Other Apps (Overlay)</div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>Displays the focus restriction screen when restricted apps are launched.</div>
@@ -71,7 +71,7 @@ export default function ProfileView({ user, onLogout }) {
             </button>
           </div>
 
-          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ padding: '14px 18px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface)', border: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontWeight: '700', fontSize: '0.9rem' }}>Foreground Study Service</div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)' }}>Keeps timer and Focus Mode active across device screen changes.</div>

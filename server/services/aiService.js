@@ -30,7 +30,6 @@ const fetchPublicLlm = async (systemContext, userMessage) => {
   return null;
 };
 
-
 const askAiTutor = async ({ topic, subtopic, learningGoal, userMessage, history }) => {
   const currentTopic = topic || 'Computer Science';
   const currentSubtopic = subtopic || '';
@@ -50,104 +49,62 @@ const askAiTutor = async ({ topic, subtopic, learningGoal, userMessage, history 
     };
   }
 
-  const gratitude = ['thanks', 'thank you', 'thx', 'got it', 'awesome', 'great', 'cool', 'ok', 'okay'];
-  if (gratitude.includes(lowerMsg) || lowerMsg === 'thank you so much') {
-    return {
-      reply: `You're very welcome! 😊 Keep up the great work on **${displayContext}**.\n\n` +
-        `Feel free to ask whenever you need further clarification or another example!`,
-      role: 'assistant', timestamp: new Date()
-    };
-  }
+  // 2. Beginner & "Start from Scratch" Intent Classifier
+  const beginnerKeywords = ['start from scratch', 'beginner', 'where to start', 'how to learn', 'from scratch', 'new to this', 'basics'];
+  const isBeginnerIntent = beginnerKeywords.some(kw => lowerMsg.includes(kw));
 
-  // System Context Header for AI Models
-  const systemContext = `You are StudyShield AI Tutor, an expert, friendly private computer science and STEM tutor like ChatGPT.
-Current Study Session Context:
-- Main Topic: "${currentTopic}"
-- Subtopic: "${currentSubtopic}"
-- Learning Goal: "${goal}"`;
-
-  // 2. Try Google Gemini API if GEMINI_API_KEY or GOOGLE_API_KEY is available in env
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (apiKey) {
-    const models = ['gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-pro'];
-    for (const model of models) {
-      try {
-        const prompt = `${systemContext}\n\nStudent Question: "${rawMsg}"\n\nProvide an accurate, clear, engaging, and thorough response with clean markdown formatting.`;
-
-        const geminiRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-          }
-        );
-
-        if (geminiRes.ok) {
-          const data = await geminiRes.json();
-          const aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (aiText) {
-            return { reply: aiText.trim(), role: 'assistant', timestamp: new Date() };
-          }
-        }
-      } catch (err) {
-        console.warn(`[Gemini Model ${model} Warning]`, err.message);
-      }
-    }
-  }
-
-  // 3. Try Real-Time Public LLM AI Provider (Guarantees ChatGPT-quality answers for any question)
-  try {
-    const llmAnswer = await fetchPublicLlm(systemContext, rawMsg);
-    if (llmAnswer) {
-      return { reply: llmAnswer, role: 'assistant', timestamp: new Date() };
-    }
-  } catch (err) {
-    console.warn('[Public LLM Warning]', err.message);
-  }
-
-  // 4. Intelligent Offline Educational Fallback Engine (Extracts exact query subject)
-  const isBeginnerIntent = lowerMsg.includes('scratch') || lowerMsg.includes('beginner') || lowerMsg.includes('where to start') || lowerMsg.includes('start from');
   if (isBeginnerIntent) {
     return {
-      reply: `🚀 **Starting ${displayContext} from Scratch!**\n\n` +
-        `Welcome! Learning **${displayContext}** from the absolute beginning is exciting and straightforward. Here is your step-by-step roadmap to master it:\n\n` +
-        `- **Step 1: Core Fundamentals**: Understand basic data types, variables, and how memory stores values.\n` +
-        `- **Step 2: Logic & Control Flow**: Master conditional statements (if/else), loops (for/while), and functions.\n` +
-        `- **Step 3: Building Blocks**: Learn basic arrays and lists before moving into advanced data structures.\n\n` +
-        `*What topic would you like us to start with first? You can ask me "What is ${displayContext}?" or click **Hint** / **Real-World Example** below!*`,
+      reply: `🚀 **Getting Started with ${displayContext} (Beginner Roadmap)**\n\n` +
+        `Don't worry! Here is your step-by-step learning path:\n\n` +
+        `### Step 1: Core Fundamentals\n` +
+        `Understand key terms, syntax, and fundamental definitions of **${displayContext}**.\n\n` +
+        `### Step 2: Hands-On Examples\n` +
+        `Practice simple step-by-step problems and code walkthroughs to achieve your goal: *"${goal}"*.\n\n` +
+        `### Step 3: Practical Application\n` +
+        `Apply concepts to real-world scenarios and test your understanding with post-session assessments!\n\n` +
+        `*Ask me any specific question about ${displayContext} whenever you're ready!*`,
       role: 'assistant', timestamp: new Date()
     };
   }
 
-  let targetSubject = rawMsg
-    .replace(/^(what is a|what is an|what is|what are|explain|tell me about|how does|how to|code for|write code for|give example of|define|meaning of|details of|i need|i want|help me)\s+/i, '')
+  // 3. Extract Clean Subject from Question
+  let extractedSubject = rawMsg
+    .replace(/^(what is|how to|explain|tell me about|can you explain|give me an example of|show me|i need|help me with|how does|why does|difference between)\s+/i, '')
+    .replace(/[?!.]+$/g, '')
     .trim();
 
-  // If targetSubject contains full sentences or verb phrases, reset to displayContext
-  if (!targetSubject || targetSubject.length < 2 || targetSubject.length > 25 || /\b(start|need|want|help|scratch|begin|learn|solve)\b/i.test(targetSubject)) {
-    targetSubject = displayContext;
+  const words = extractedSubject.split(/\s+/);
+  if (words.length > 6 || extractedSubject.length < 2) {
+    extractedSubject = displayContext;
   }
-  const subjectDisplay = targetSubject.charAt(0).toUpperCase() + targetSubject.slice(1);
 
-  if (lowerMsg.includes('mern')) {
+  const subjectDisplay = extractedSubject.charAt(0).toUpperCase() + extractedSubject.slice(1);
+
+  // 4. Attempt Real-Time LLM Fetch for ChatGPT-Quality Answers
+  const systemPrompt = `You are StudyShield AI Tutor, an expert educator assisting a student studying "${currentTopic}" (${currentSubtopic}). Learning Goal: "${goal}". Provide clean, clear, accurate, neat markdown explanations like ChatGPT. Use bold headers, bullet points, and code blocks where relevant.`;
+  const realTimeResponse = await fetchPublicLlm(systemPrompt, rawMsg);
+  
+  if (realTimeResponse) {
     return {
-      reply: `💡 **MERN Stack Explained:**\n\n` +
-        `- **M** - **MongoDB**: NoSQL document-based database.\n` +
-        `- **E** - **Express.js**: Backend application framework for Node.js.\n` +
-        `- **R** - **React.js**: Front-end UI library by Meta.\n` +
-        `- **N** - **Node.js**: Server-side JavaScript runtime.`,
-      role: 'assistant', timestamp: new Date()
+      reply: realTimeResponse,
+      role: 'assistant',
+      timestamp: new Date()
     };
   }
 
-  if (lowerMsg.includes('acid')) {
+  // 5. Fallback Structured Response Engine
+  if (lowerMsg.includes('database') || lowerMsg.includes('sql') || lowerMsg.includes('acid') || lowerMsg.includes('table')) {
     return {
-      reply: `💡 **ACID Properties in Databases:**\n\n` +
-        `1. **Atomicity**: All operations succeed or all fail.\n` +
-        `2. **Consistency**: Moves from one valid state to another.\n` +
-        `3. **Isolation**: Concurrent transactions do not interfere.\n` +
-        `4. **Durability**: Committed data persists across failures.`,
+      reply: `🗄️ **Database & ${subjectDisplay} Principles:**\n\n` +
+        `### 1. Overview\n` +
+        `In **${displayContext}**, structured data persistence requires balancing throughput, consistency, and index efficiency.\n\n` +
+        `### 2. ACID Guarantees\n` +
+        `- **Atomicity**: Transactions complete fully or roll back completely.\n` +
+        `- **Consistency**: Database state satisfies all schema constraints.\n` +
+        `- **Isolation**: Concurrent execution produces results identical to sequential execution.\n` +
+        `- **Durability**: Committed data survives system crashes.\n\n` +
+        `*Would you like an example SQL query or index optimization strategy?*`,
       role: 'assistant', timestamp: new Date()
     };
   }
@@ -156,14 +113,12 @@ Current Study Session Context:
 
   if (isCodeIntent) {
     return {
-      reply: `💻 **Practical Code Demonstration: ${subjectDisplay}**\n\n` +
+      reply: `💻 **Practical Implementation: ${subjectDisplay}**\n\n` +
         `\`\`\`javascript\n` +
         `// ${subjectDisplay} - Implementation Example\n` +
         `function solve${subjectDisplay.replace(/[^a-zA-Z0-9]/g, '')}(input) {\n` +
         `  console.log("Executing ${subjectDisplay} logic with input:", input);\n` +
-        `  // Step 1: Initialize data structure & pointers\n` +
         `  let result = [];\n` +
-        `  // Step 2: Core processing loop\n` +
         `  if (Array.isArray(input)) {\n` +
         `    result = input.filter(item => item !== null);\n` +
         `  }\n` +
@@ -176,88 +131,205 @@ Current Study Session Context:
   }
 
   return {
-    reply: `📘 **${subjectDisplay} — Concept Explanation:**\n\n` +
+    reply: `📘 **${subjectDisplay} — Core Concept Explanation:**\n\n` +
       `### 1. What is ${subjectDisplay}?\n` +
-      `**${subjectDisplay}** is a core concept in **${currentTopic}** designed to structure logic, manage computational resources, and optimize system efficiency.\n\n` +
+      `**${subjectDisplay}** is a foundational concept in **${currentTopic}** designed to structure logic, manage computational resources, and optimize efficiency.\n\n` +
       `### 2. Key Principles & Characteristics\n` +
       `- **Efficiency**: Optimized to reduce execution time (O(log N) or O(1)) and memory overhead.\n` +
-      `- **Scalability**: Maintains stability as data volumes grow.\n` +
-      `- **System Integration**: Integrates directly with core software components in your study goal: "${goal}".\n\n` +
-      `*What would you like to explore next? You can ask for code examples, time complexity tables, or hints!*`,
+      `- **Scalability**: Maintains stability as workload grows.\n` +
+      `- **System Integration**: Directly aligns with your learning goal: "${goal}".\n\n` +
+      `*What would you like to explore next? Ask for code examples, time complexity tables, or hints!*`,
     role: 'assistant', timestamp: new Date()
   };
 };
 
-
-
-
-
+// Generate Assessment Question Tailored Exactly to Session Topic
 const generateAssessment = async ({ topic, subtopic, learningGoal }) => {
-  const scenarios = [
+  const displayTopic = subtopic ? `${topic} (${subtopic})` : topic;
+  const goal = learningGoal || 'Master core concepts and application';
+
+  const assessmentPool = [
     {
-      question: 'Scenario: You are tasked with analyzing a high-throughput system utilizing ' + topic + ' ' + (subtopic ? '(' + subtopic + ')' : '') + '. Explain how you would structure the design, handle edge cases, and maintain performance under high load.',
-      expectedConcepts: ['Data Structure Optimization', 'Edge Case Handling', 'Efficiency & Throughput', 'Algorithmic Complexity'],
-      difficulty: 'intermediate'
+      question: `Practical Scenario (${displayTopic}): You are tasked with designing a production module in ${displayTopic} to achieve the goal: "${goal}". A sudden high-throughput workload causes performance degradation. Explain step-by-step how you would structure your solution, address edge cases, and ensure optimal performance.`,
+      expectedConcepts: [`${topic} Application`, 'Performance Optimization', 'Edge Case Handling', 'Systemic Bottleneck Diagnosis'],
+      difficulty: 'intermediate',
+      assessmentType: 'scenario_analysis'
     },
     {
-      question: 'Practical Problem: A system applying ' + topic + ' produces inconsistent performance bottlenecks under stress. Diagnose the top 3 potential root causes and describe your step-by-step verification process.',
-      expectedConcepts: ['Root Cause Analysis', 'Debugging Principles', 'Systemic Verification', 'Conceptual Accuracy'],
-      difficulty: 'intermediate'
+      question: `Code & Logic Reasoning (${displayTopic}): Reviewing an existing implementation of ${displayTopic}, you notice unexpected behavior during edge case execution. Describe the primary trade-offs involved, your step-by-step refactoring approach, and how your changes align with "${goal}".`,
+      expectedConcepts: [`${topic} Architecture`, 'Trade-off Analysis', 'Refactoring & Edge Cases', 'Logical Correctness'],
+      difficulty: 'intermediate',
+      assessmentType: 'code_reasoning'
+    },
+    {
+      question: `Problem Solving & Analysis (${displayTopic}): You are evaluating alternative approaches for implementing ${displayTopic} to achieve "${goal}". Compare their complexity, resource utilization, and practical applicability.`,
+      expectedConcepts: [`${topic} Principles`, 'Time & Space Complexity', 'Comparative Analysis', 'Practical Implementation'],
+      difficulty: 'advanced',
+      assessmentType: 'problem_solving'
     }
   ];
 
-  const selected = scenarios[Math.floor(Math.random() * scenarios.length)];
+  const selected = assessmentPool[Math.floor(Math.random() * assessmentPool.length)];
   return {
     topic,
-    subtopic,
+    subtopic: subtopic || '',
     question: selected.question,
     expectedConcepts: selected.expectedConcepts,
-    difficulty: selected.difficulty
+    difficulty: selected.difficulty,
+    assessmentType: selected.assessmentType
   };
 };
 
-const evaluateAssessment = async ({ question, expectedConcepts, studentAnswer, topic }) => {
-  const answerLen = studentAnswer ? studentAnswer.trim().length : 0;
-  
-  let score = 70;
-  if (answerLen > 150) score += 20;
-  else if (answerLen > 60) score += 10;
+// Strict AI Evaluation Engine: Irrelevant or Incorrect Answers = 0%
+const evaluateAssessment = async ({ question, expectedConcepts, studentAnswer, topic, subtopic, learningGoal }) => {
+  const rawAnswer = studentAnswer ? studentAnswer.trim() : '';
+  const answerLen = rawAnswer.length;
+  const lowerAnswer = rawAnswer.toLowerCase();
 
+  // 1. Non-substantive / low-effort greetings or single-word inputs
+  const LOW_EFFORT_PHRASES = [
+    'hi', 'hello', 'hey', 'idk', 'no', 'yes', 'ok', 'okay', 'test', 'a', 'b', 'c',
+    'dunno', 'dont know', "don't know", 'nothing', 'na', 'n/a', 'whatever', 'bye', 'pls'
+  ];
+
+  const isLowEffort = answerLen < 15 || LOW_EFFORT_PHRASES.includes(lowerAnswer);
+
+  if (isLowEffort) {
+    return {
+      score: 0,
+      metrics: { accuracy: 0, understanding: 0, application: 0, reasoning: 0, completeness: 0, relevance: 0 },
+      strengths: [],
+      weaknesses: [
+        'Submission was too brief or non-substantive (0% awarded)',
+        'Failed to address the scenario prompt and topic concepts'
+      ],
+      missingConcepts: expectedConcepts || [topic],
+      suggestions: [
+        `Write a complete response explaining your technical approach to ${topic}`,
+        'Address the specific question prompt and expected concepts to earn points'
+      ],
+      feedback: `❌ **Score: 0% — Non-Substantive Submission**\n\nYour answer ("${rawAnswer}") was too short or non-substantive to demonstrate subject mastery for **${topic}**. Only correct and relevant answers receive credit.\n\n*(Note: AI evaluation is learning feedback, not an infallible academic grade.)*`
+    };
+  }
+
+  // 2. Relevance & Topic Word Matching (Strict Irrelevant Filter)
+  const fullContext = `${topic} ${subtopic || ''} ${learningGoal || ''} ${question || ''} ${(expectedConcepts || []).join(' ')}`.toLowerCase();
+  
+  // Extract topic-specific keywords (words > 3 chars, omitting generic stop words)
+  const STOP_WORDS = new Set(['what', 'how', 'why', 'with', 'this', 'that', 'from', 'your', 'have', 'would', 'will', 'using', 'which', 'about', 'step', 'goal', 'core', 'main', 'also', 'solution', 'approach', 'system', 'implement', 'design']);
+  const topicKeywords = Array.from(new Set(
+    fullContext.split(/[\s\/,&().\-:]+/)
+      .filter(w => w.length > 3 && !STOP_WORDS.has(w))
+  ));
+
+  const answerWords = lowerAnswer.split(/[\s\/,&().\-:]+/);
+  const matchedTopicWords = answerWords.filter(w => w.length > 3 && topicKeywords.some(kw => kw.includes(w) || w.includes(kw)));
+
+  // Evaluate Expected Concepts coverage
   const matchedConcepts = [];
   const missingConcepts = [];
 
-  expectedConcepts.forEach(concept => {
-    const conceptWords = concept.toLowerCase().split(' ');
-    const matched = conceptWords.some(w => studentAnswer.toLowerCase().includes(w));
-    if (matched || answerLen > 100) {
+  (expectedConcepts || []).forEach(concept => {
+    const conceptWords = concept.toLowerCase().split(/[\s\/,&]+/);
+    const matched = conceptWords.some(w => w.length > 3 && lowerAnswer.includes(w));
+    if (matched) {
       matchedConcepts.push(concept);
     } else {
       missingConcepts.push(concept);
     }
   });
 
-  const finalScore = Math.min(100, Math.max(45, score));
+  // STRICT RELEVANCE RULE: If ZERO topic keywords and ZERO expected concepts match, the answer is 100% IRRELEVANT (Score: 0%)
+  const isIrrelevant = matchedTopicWords.length === 0 && matchedConcepts.length === 0;
+
+  if (isIrrelevant) {
+    return {
+      score: 0,
+      metrics: { accuracy: 0, understanding: 0, application: 0, reasoning: 0, completeness: 0, relevance: 0 },
+      strengths: [],
+      weaknesses: [
+        `Answer is completely off-topic or irrelevant to ${topic}`,
+        'Contains zero relevant technical concepts or topic terminology'
+      ],
+      missingConcepts: expectedConcepts || [topic],
+      suggestions: [
+        `Provide a relevant response addressing ${topic} and the scenario question`,
+        'Use topic-specific terminology and step-by-step reasoning'
+      ],
+      feedback: `❌ **Score: 0% — Irrelevant Response**\n\nYour answer does not contain any relevant concepts or terminology related to **${topic}**. 0% has been awarded.\n\nPlease review the question and provide a relevant technical solution to earn credit.\n\n*(Note: AI evaluation is learning feedback, not an infallible academic grade.)*`
+    };
+  }
+
+  // 3. Dynamic Scoring for Relevant Substantive Submissions
+  const conceptRatio = (expectedConcepts && expectedConcepts.length > 0)
+    ? (matchedConcepts.length / expectedConcepts.length)
+    : (matchedTopicWords.length > 2 ? 0.6 : 0.3);
+
+  const hasReasoning = lowerAnswer.includes('because') || 
+                       lowerAnswer.includes('due to') || 
+                       lowerAnswer.includes('step') || 
+                       lowerAnswer.includes('trade-off') || 
+                       lowerAnswer.includes('complexity') || 
+                       lowerAnswer.includes('therefore') || 
+                       lowerAnswer.includes('however') ||
+                       lowerAnswer.includes('time') ||
+                       lowerAnswer.includes('space');
+
+  // Compute 6 Assessment Dimensions (0 - 100) dynamically
+  const accuracyScore = Math.min(100, Math.round((conceptRatio * 60) + (matchedTopicWords.length * 10) + (answerLen > 100 ? 20 : 10)));
+  const understandingScore = Math.min(100, Math.round((conceptRatio * 70) + (matchedTopicWords.length * 8)));
+  const applicationScore = Math.min(100, Math.round((conceptRatio * 60) + (answerLen > 120 ? 30 : 15)));
+  const reasoningScore = Math.min(100, Math.round((hasReasoning ? 40 : 10) + (conceptRatio * 40) + (answerLen > 100 ? 20 : 10)));
+  const completenessScore = Math.min(100, Math.round(answerLen > 180 ? 95 : answerLen > 100 ? 75 : answerLen > 40 ? 50 : 25));
+  const relevanceScore = Math.min(100, Math.round(40 + (conceptRatio * 40) + (matchedTopicWords.length * 10)));
 
   const metrics = {
-    accuracy: Math.min(100, Math.max(50, finalScore + (answerLen > 100 ? 5 : -5))),
-    understanding: Math.min(100, Math.max(50, finalScore + (matchedConcepts.length * 5))),
-    application: Math.min(100, Math.max(45, finalScore - (missingConcepts.length * 4))),
-    reasoning: Math.min(100, Math.max(50, finalScore + (answerLen > 120 ? 8 : 0))),
-    completeness: Math.min(100, Math.max(40, answerLen > 150 ? 90 : 65)),
-    relevance: Math.min(100, Math.max(60, finalScore + 4))
+    accuracy: accuracyScore,
+    understanding: understandingScore,
+    application: applicationScore,
+    reasoning: reasoningScore,
+    completeness: completenessScore,
+    relevance: relevanceScore
   };
+
+  const overallScore = Math.round(
+    metrics.accuracy * 0.25 +
+    metrics.understanding * 0.20 +
+    metrics.application * 0.20 +
+    metrics.reasoning * 0.15 +
+    metrics.completeness * 0.10 +
+    metrics.relevance * 0.10
+  );
+
+  const finalScore = Math.min(100, Math.max(0, overallScore));
+
+  const strengths = [
+    `Demonstrated relevant understanding of ${topic}`,
+    matchedConcepts.length > 0 ? `Addressed core concepts: ${matchedConcepts.slice(0, 2).join(', ')}` : 'Submitted topic-aligned solution'
+  ];
+
+  const weaknesses = missingConcepts.length > 0
+    ? missingConcepts.map(c => `Needs deeper elaboration on ${c}`)
+    : ['Could include more quantitative metrics'];
+
+  const suggestions = [
+    `Review core ${topic} edge cases before your next study session`,
+    `Practice writing step-by-step trade-off explanations`,
+    `Take session notes on key algorithmic time & space complexities`
+  ];
+
+  const feedbackText = `🎯 **Assessment Evaluation Complete (Score: ${finalScore}%)**\n\nYour response demonstrated a ${finalScore >= 85 ? 'strong' : finalScore >= 70 ? 'good' : 'developing'} grasp of **${topic}**. ` +
+    (missingConcepts.length > 0 ? `To improve, focus on addressing: ${missingConcepts.join(', ')}. ` : `Great thoroughness across key concepts! `) +
+    `\n\n*(Note: AI evaluation is learning feedback, not an infallible academic grade.)*`;
 
   return {
     score: finalScore,
     metrics,
-    strengths: [
-      'Demonstrated application of ' + topic + ' principles',
-      'Structured explanation with clear logical steps',
-      matchedConcepts.length > 0 ? 'Good awareness of ' + matchedConcepts.join(', ') : 'Sufficient attempt at scenario analysis'
-    ],
-    weaknesses: missingConcepts.length > 0 ? missingConcepts.map(c => 'Needs deeper elaboration on ' + c) : ['Could provide more quantitative details'],
-    missingConcepts: missingConcepts.length > 0 ? missingConcepts : ['In-depth edge case analysis'],
-    feedback: 'Solid effort! Your answer showed clear understanding of ' + topic + '. Score: ' + finalScore + '/100. ' + (missingConcepts.length > 0 ? 'To improve, focus more on: ' + missingConcepts.join(', ') + '.' : 'Excellent thoroughness!')
+    strengths,
+    weaknesses,
+    missingConcepts,
+    suggestions,
+    feedback: feedbackText
   };
 };
 

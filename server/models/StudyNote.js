@@ -10,6 +10,10 @@ const studyNoteSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+studyNoteSchema.index({ userId: 1, topic: 1 });
+studyNoteSchema.index({ userId: 1, sessionId: 1 });
+studyNoteSchema.index({ userId: 1, createdAt: -1 });
+
 studyNoteSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();

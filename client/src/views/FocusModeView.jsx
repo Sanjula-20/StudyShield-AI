@@ -215,13 +215,15 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
   };
 
   const handleFinishEarly = async () => {
+    const sessId = session._id || session.id;
+    const isEarly = elapsedSeconds < plannedSeconds;
     try {
-      await api.updateSessionStatus(session._id, 'COMPLETED', actualMinutes);
+      await api.updateSessionStatus(sessId, isEarly ? 'EARLY_COMPLETED' : 'COMPLETED', actualMinutes);
     } catch (err) {
       console.error('Failed to complete session status', err);
     } finally {
       if (onSessionCompleted) {
-        onSessionCompleted(session, actualMinutes);
+        onSessionCompleted(sessId, actualMinutes, isEarly);
       } else if (onCancelSession) {
         onCancelSession();
       }
@@ -455,9 +457,9 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                       padding: '12px 16px',
                       borderRadius: '14px',
                       background: msg.role === 'user'
-                        ? 'rgba(99, 102, 241, 0.2)'
-                        : 'rgba(15, 23, 42, 0.8)',
-                      border: `1px solid ${msg.role === 'user' ? 'var(--primary)' : 'var(--glass-border)'}`,
+                        ? 'var(--primary-light)'
+                        : 'var(--bg-surface)',
+                      border: `1px solid ${msg.role === 'user' ? 'var(--glass-border-hover)' : 'var(--glass-border)'}`,
                       fontSize: '0.88rem',
                       lineHeight: '1.5'
                     }}
@@ -479,7 +481,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                               if (trimmed.startsWith('#')) {
                                 const headerText = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/\$/g, '');
                                 return (
-                                  <div key={idx} style={{ fontWeight: '700', fontSize: '0.92rem', color: '#818cf8', marginTop: '6px', marginBottom: '2px' }}>
+                                  <div key={idx} style={{ fontWeight: '700', fontSize: '0.92rem', color: 'var(--primary)', marginTop: '6px', marginBottom: '2px' }}>
                                     {headerText}
                                   </div>
                                 );
@@ -500,7 +502,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                               const parts = trimmed.split(/(\*\*.*?\*\*)/g);
                               const elements = parts.map((part, pIdx) => {
                                 if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-                                  return <strong key={pIdx} style={{ color: '#fff', fontWeight: '700' }}>{part.slice(2, -2)}</strong>;
+                                  return <strong key={pIdx} style={{ color: 'var(--text-main)', fontWeight: '700' }}>{part.slice(2, -2)}</strong>;
                                 }
                                 return part.replace(/\$/g, '');
                               });
@@ -508,7 +510,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                               if (isBullet) {
                                 return (
                                   <div key={idx} style={{ display: 'flex', gap: '6px', marginLeft: '6px' }}>
-                                    <span style={{ color: '#818cf8', fontWeight: 'bold' }}>•</span>
+                                    <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>•</span>
                                     <div>{elements}</div>
                                   </div>
                                 );

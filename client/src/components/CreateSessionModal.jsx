@@ -96,11 +96,11 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
               width: '40px',
               height: '40px',
               borderRadius: '12px',
-              background: 'rgba(0, 242, 254, 0.15)',
+              background: 'var(--primary-light)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: '1px solid rgba(0, 242, 254, 0.3)'
+              border: '1px solid var(--glass-border-hover)'
             }}>
               <Shield size={22} color="var(--primary)" />
             </div>
@@ -116,8 +116,8 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
 
         {/* Quick Scenario Preset Button */}
         <div style={{
-          background: 'rgba(127, 0, 255, 0.12)',
-          border: '1px solid rgba(127, 0, 255, 0.3)',
+          background: 'var(--accent-light)',
+          border: '1px solid var(--glass-border-hover)',
           padding: '10px 14px',
           borderRadius: 'var(--radius-sm)',
           marginBottom: '18px',
@@ -151,9 +151,9 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
 
         {error && (
           <div style={{
-            background: 'rgba(244, 63, 94, 0.15)',
+            background: 'var(--rose-light)',
             border: '1px solid rgba(244, 63, 94, 0.3)',
-            color: '#fb7185',
+            color: 'var(--rose)',
             padding: '10px 14px',
             borderRadius: 'var(--radius-sm)',
             fontSize: '0.85rem',
@@ -186,7 +186,7 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
                     fontSize: '0.72rem',
                     padding: '4px 8px',
                     borderRadius: '6px',
-                    background: topic === t ? 'rgba(0, 242, 254, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    background: topic === t ? 'var(--primary-light)' : 'rgba(255, 255, 255, 0.05)',
                     border: `1px solid ${topic === t ? 'var(--primary)' : 'var(--glass-border)'}`,
                     color: topic === t ? 'var(--primary)' : 'var(--text-muted)',
                     cursor: 'pointer'
@@ -261,7 +261,7 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
                     style={{
                       padding: '10px 14px',
                       borderRadius: 'var(--radius-sm)',
-                      background: isSelected ? 'rgba(127, 0, 255, 0.15)' : 'rgba(15, 23, 42, 0.6)',
+                      background: isSelected ? 'var(--accent-light)' : 'var(--bg-surface)',
                       border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--glass-border)'}`,
                       cursor: 'pointer',
                       display: 'flex',

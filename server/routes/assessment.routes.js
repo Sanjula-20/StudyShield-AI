@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/auth');
 const { isMongo, memoryDb } = require('../db');
 const { generateAssessment, evaluateAssessment } = require('../services/aiService');
+const { calculateTopicMastery } = require('../utils/masteryCalculator');
 const Assessment = require('../models/Assessment');
 const AssessmentResult = require('../models/AssessmentResult');
 const StudySession = require('../models/StudySession');
@@ -29,7 +30,8 @@ router.post('/generate', authMiddleware, async (req, res) => {
         subtopic: subtopic || '',
         question: generated.question,
         expectedConcepts: generated.expectedConcepts,
-        difficulty: generated.difficulty
+        difficulty: generated.difficulty,
+        assessmentType: generated.assessmentType || 'scenario_analysis'
       });
 
       // Link to study session
@@ -48,6 +50,7 @@ router.post('/generate', authMiddleware, async (req, res) => {
         question: generated.question,
         expectedConcepts: generated.expectedConcepts,
         difficulty: generated.difficulty,
+        assessmentType: generated.assessmentType || 'scenario_analysis',
         createdAt: new Date()
       };
       memoryDb.assessments.push(assessment);
@@ -91,7 +94,8 @@ router.post('/:id/submit', authMiddleware, async (req, res) => {
       question: assessmentObj.question,
       expectedConcepts: assessmentObj.expectedConcepts || [],
       studentAnswer: answer,
-      topic: assessmentObj.topic
+      topic: assessmentObj.topic,
+      subtopic: assessmentObj.subtopic
     });
 
     if (isMongo()) {
@@ -100,33 +104,51 @@ router.post('/:id/submit', authMiddleware, async (req, res) => {
         userId,
         answer,
         score: evalResult.score,
+        metrics: evalResult.metrics,
         strengths: evalResult.strengths,
         weaknesses: evalResult.weaknesses,
         missingConcepts: evalResult.missingConcepts,
+        suggestions: evalResult.suggestions,
         feedback: evalResult.feedback
       });
 
       // Update study session score
       await StudySession.findByIdAndUpdate(assessmentObj.sessionId, { score: evalResult.score });
 
-      // Update Topic Mastery
+      // Update Topic Mastery using Multi-Factor Formula (09_PROGRESS_AND_ANALYTICS.md)
       let mastery = await TopicMastery.findOne({ userId, topic: assessmentObj.topic });
+      const currentSession = await StudySession.findById(assessmentObj.sessionId);
+      const sessionDur = currentSession ? currentSession.actualDuration || 0 : 0;
+
+      const prevMasteryScore = mastery ? mastery.masteryScore : 0;
+      const totalSessCount = mastery ? (mastery.totalSessions + 1) : 1;
+      const totalFocMins = mastery ? (mastery.totalFocusedMinutes + sessionDur) : sessionDur;
+
+      const calcResult = calculateTopicMastery({
+        assessmentScore: evalResult.score,
+        previousMastery: prevMasteryScore,
+        totalSessions: totalSessCount,
+        totalFocusedMinutes: totalFocMins
+      });
+
       if (!mastery) {
         mastery = await TopicMastery.create({
           userId,
           topic: assessmentObj.topic,
-          masteryScore: evalResult.score,
-          previousScore: 0,
-          trend: 'improving',
-          totalSessions: 1
+          masteryScore: calcResult.masteryScore,
+          previousScore: calcResult.previousScore,
+          trend: calcResult.trend,
+          totalSessions: calcResult.totalSessions,
+          totalFocusedMinutes: calcResult.totalFocusedMinutes,
+          averageScore: calcResult.averageScore
         });
       } else {
-        mastery.previousScore = mastery.masteryScore;
-        // Weighted formula: 60% new score + 40% historical mastery
-        const updatedScore = Math.round(evalResult.score * 0.6 + mastery.masteryScore * 0.4);
-        mastery.trend = updatedScore >= mastery.masteryScore ? 'improving' : 'declining';
-        mastery.masteryScore = updatedScore;
-        mastery.totalSessions += 1;
+        mastery.previousScore = calcResult.previousScore;
+        mastery.masteryScore = calcResult.masteryScore;
+        mastery.trend = calcResult.trend;
+        mastery.totalSessions = calcResult.totalSessions;
+        mastery.totalFocusedMinutes = calcResult.totalFocusedMinutes;
+        mastery.averageScore = calcResult.averageScore;
         await mastery.save();
       }
 
@@ -150,9 +172,11 @@ router.post('/:id/submit', authMiddleware, async (req, res) => {
         userId,
         answer,
         score: evalResult.score,
+        metrics: evalResult.metrics,
         strengths: evalResult.strengths,
         weaknesses: evalResult.weaknesses,
         missingConcepts: evalResult.missingConcepts,
+        suggestions: evalResult.suggestions,
         feedback: evalResult.feedback,
         createdAt: new Date()
       };
@@ -160,25 +184,40 @@ router.post('/:id/submit', authMiddleware, async (req, res) => {
 
       const session = memoryDb.studySessions.find(s => s._id === assessmentObj.sessionId || s.id === assessmentObj.sessionId);
       if (session) session.score = evalResult.score;
+      const sessionDur = session ? session.actualDuration || 0 : 0;
 
       let mastery = memoryDb.topicMastery.find(m => m.userId === userId && m.topic === assessmentObj.topic);
+      const prevMasteryScore = mastery ? mastery.masteryScore : 0;
+      const totalSessCount = mastery ? ((mastery.totalSessions || 0) + 1) : 1;
+      const totalFocMins = mastery ? ((mastery.totalFocusedMinutes || 0) + sessionDur) : sessionDur;
+
+      const calcResult = calculateTopicMastery({
+        assessmentScore: evalResult.score,
+        previousMastery: prevMasteryScore,
+        totalSessions: totalSessCount,
+        totalFocusedMinutes: totalFocMins
+      });
+
       if (!mastery) {
         mastery = {
           id: 'tm_' + Date.now(),
           userId,
           topic: assessmentObj.topic,
-          masteryScore: evalResult.score,
-          previousScore: 0,
-          trend: 'improving',
-          totalSessions: 1
+          masteryScore: calcResult.masteryScore,
+          previousScore: calcResult.previousScore,
+          trend: calcResult.trend,
+          totalSessions: calcResult.totalSessions,
+          totalFocusedMinutes: calcResult.totalFocusedMinutes,
+          averageScore: calcResult.averageScore
         };
         memoryDb.topicMastery.push(mastery);
       } else {
-        mastery.previousScore = mastery.masteryScore;
-        const updatedScore = Math.round(evalResult.score * 0.6 + mastery.masteryScore * 0.4);
-        mastery.trend = updatedScore >= mastery.masteryScore ? 'improving' : 'declining';
-        mastery.masteryScore = updatedScore;
-        mastery.totalSessions += 1;
+        mastery.previousScore = calcResult.previousScore;
+        mastery.masteryScore = calcResult.masteryScore;
+        mastery.trend = calcResult.trend;
+        mastery.totalSessions = calcResult.totalSessions;
+        mastery.totalFocusedMinutes = calcResult.totalFocusedMinutes;
+        mastery.averageScore = calcResult.averageScore;
       }
 
       // Update analytics average

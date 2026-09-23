@@ -8,8 +8,12 @@ const topicMasterySchema = new mongoose.Schema({
   trend: { type: String, enum: ['improving', 'stable', 'declining'], default: 'stable' },
   totalSessions: { type: Number, default: 0 },
   totalFocusedMinutes: { type: Number, default: 0 },
+  averageScore: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
+
+topicMasterySchema.index({ userId: 1, topic: 1 }, { unique: true });
 
 topicMasterySchema.pre('save', function(next) {
   this.updatedAt = Date.now();
