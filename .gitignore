@@ -1,1 +1,16 @@
+# Ignore dependencies
+node_modules/
+
+# Ignore environment & secret key files
+.env
+*.env
+server/.env
+
+# Ignore build output & temp files
+dist/
+client/dist/
+scratch/
+.idea/
+
+# Plan directory
 Plan/

@@ -38,10 +38,22 @@ export default function App() {
       const data = await api.getMe();
       setUser(data.user);
 
-      // Check if active session running
+      // Check if active session running (Backend API or LocalStorage persistence)
       const activeRes = await api.getActiveSession();
       if (activeRes.session) {
         setCurrentSession(activeRes.session);
+      } else {
+        const storedLocal = localStorage.getItem('studyshield_active_session');
+        if (storedLocal) {
+          try {
+            const parsed = JSON.parse(storedLocal);
+            if (parsed && (parsed.sessionId || parsed._id || parsed.id)) {
+              setCurrentSession(parsed);
+            }
+          } catch (e) {
+            console.error('Failed to parse local active session', e);
+          }
+        }
       }
     } catch (err) {
       console.error('Auth verification failed', err);
@@ -94,6 +106,11 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
+  const handleReturnToStudy = (session) => {
+    setAssessmentSession(null);
+    setCurrentSession(session);
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-dark)' }}>
@@ -123,6 +140,7 @@ export default function App() {
         <AssessmentView
           session={assessmentSession}
           onAssessmentComplete={handleAssessmentComplete}
+          onReturnToStudy={handleReturnToStudy}
         />
       );
     }

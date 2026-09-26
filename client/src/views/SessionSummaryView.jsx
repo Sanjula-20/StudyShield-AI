@@ -1,9 +1,11 @@
 import React from 'react';
-import { Award, Clock, CheckCircle2, TrendingUp, BookOpen, ArrowRight, Shield } from 'lucide-react';
+import { Award, Clock, CheckCircle2, TrendingUp, BookOpen, ArrowRight, Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 
-export default function SessionSummaryView({ session, evaluationResult, onFinishSummary }) {
+export default function SessionSummaryView({ session, evaluationResult, onFinishSummary, onRetryAssessment, onReturnToStudy }) {
   const result = evaluationResult?.result || {};
   const mastery = evaluationResult?.topicMastery || {};
+  const score = result.score !== undefined ? result.score : (session.score || 0);
+  const isPassed = score >= 50;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '700px', margin: '0 auto' }}>
@@ -13,18 +15,20 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
           width: '64px',
           height: '64px',
           borderRadius: '20px',
-          background: 'linear-gradient(135deg, var(--emerald) 0%, var(--primary) 100%)',
+          background: isPassed
+            ? 'linear-gradient(135deg, var(--emerald) 0%, var(--primary) 100%)'
+            : 'linear-gradient(135deg, #f43f5e 0%, #d97706 100%)',
           margin: '0 auto 16px auto',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 0 24px var(--primary-glow)'
+          boxShadow: isPassed ? '0 0 24px var(--primary-glow)' : '0 0 24px rgba(244, 63, 94, 0.4)'
         }}>
-          <Award size={36} color="#fff" />
+          {isPassed ? <Award size={36} color="#fff" /> : <AlertTriangle size={36} color="#fff" />}
         </div>
 
-        <span className="badge badge-emerald" style={{ marginBottom: '8px' }}>
-          Session Summary • {session.status || 'COMPLETED'}
+        <span className={isPassed ? 'badge badge-emerald' : 'badge badge-rose'} style={{ marginBottom: '8px' }}>
+          {isPassed ? 'Session Completed • Mastery Verified' : 'Assessment Threshold Unmet (Score < 50%)'}
         </span>
 
         <h2 style={{ fontSize: '1.6rem', fontWeight: '800', margin: '4px 0 6px 0' }}>
@@ -36,6 +40,45 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
           </p>
         )}
       </div>
+
+      {/* Threshold Status Banner */}
+      {!isPassed ? (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.15)',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          color: '#f87171',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          textAlign: 'left'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '800', fontSize: '1.05rem', marginBottom: '6px' }}>
+            <AlertTriangle size={22} color="#f87171" />
+            <span>Score Below 50% Threshold ({score}% / 100%)</span>
+          </div>
+          <p style={{ fontSize: '0.86rem', margin: 0, lineHeight: '1.5', color: '#fca5a5' }}>
+            Your assessment score is <strong>{score}%</strong>, which is below the minimum 50% required to pass. 
+            The assessment will not complete automatically. You can review weak concepts with your <strong>AI Tutor</strong> or retry a fresh assessment question below to achieve mastery!
+          </p>
+        </div>
+      ) : (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.15)',
+          border: '1px solid rgba(16, 185, 129, 0.4)',
+          color: '#34d399',
+          padding: '14px 18px',
+          borderRadius: '12px',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <CheckCircle2 size={26} color="#34d399" />
+          <div>
+            <div style={{ fontWeight: '800', fontSize: '1rem' }}>Assessment Passed! ({score}%)</div>
+            <div style={{ fontSize: '0.82rem', color: '#a7f3d0' }}>Minimum 50% threshold achieved. Topic mastery updated!</div>
+          </div>
+        </div>
+      )}
 
       {/* Planned vs Actual Duration & Score Grid */}
       <div className="desktop-grid-4">
@@ -55,8 +98,8 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
 
         <div className="glass-panel" style={{ padding: '14px', textAlign: 'center' }}>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: '800' }}>Assessment Score</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--primary)', marginTop: '2px' }}>
-            {result.score || session.score || 0}%
+          <div style={{ fontSize: '1.4rem', fontWeight: '800', color: isPassed ? 'var(--primary)' : '#f87171', marginTop: '2px' }}>
+            {score}%
           </div>
         </div>
 
@@ -80,11 +123,11 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'capitalize', fontWeight: '700' }}>
                   {key}
                 </div>
-                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--primary)', margin: '2px 0 4px 0' }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: '800', color: val >= 50 ? 'var(--primary)' : '#f87171', margin: '2px 0 4px 0' }}>
                   {val}%
                 </div>
                 <div style={{ height: '4px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                  <div style={{ width: `${val}%`, height: '100%', background: 'linear-gradient(90deg, var(--primary) 0%, var(--emerald) 100%)' }} />
+                  <div style={{ width: `${val}%`, height: '100%', background: val >= 50 ? 'linear-gradient(90deg, var(--primary) 0%, var(--emerald) 100%)' : 'linear-gradient(90deg, #f43f5e 0%, #d97706 100%)' }} />
                 </div>
               </div>
             ))}
@@ -111,7 +154,7 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
             <CheckCircle2 size={16} /> Verified Strengths
           </h4>
           <ul style={{ paddingLeft: '18px', fontSize: '0.8rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: '4px', margin: 0 }}>
-            {(result.strengths || ['Demonstrated clear understanding of core topic']).map((s, idx) => (
+            {(result.strengths || ['Demonstrated understanding of core topic']).map((s, idx) => (
               <li key={idx}>{s}</li>
             ))}
           </ul>
@@ -162,30 +205,53 @@ export default function SessionSummaryView({ session, evaluationResult, onFinish
         </div>
       )}
 
-      {/* Educational Principle Disclaimer Notice */}
-      <div style={{
-        fontSize: '0.75rem',
-        padding: '10px 14px',
-        borderRadius: '8px',
-        background: 'rgba(99, 102, 241, 0.08)',
-        border: '1px solid rgba(99, 102, 241, 0.2)',
-        color: 'var(--text-muted)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px'
-      }}>
-        <Shield size={16} color="var(--primary)" />
-        <span>
-          <strong>Important Principle:</strong> AI evaluation is learning feedback to guide your study progress, not an infallible academic grade.
-        </span>
-      </div>
+      {/* Action Buttons */}
+      {!isPassed ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              onClick={onRetryAssessment}
+              className="btn btn-primary"
+              style={{ flex: 1, padding: '14px', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <RefreshCw size={18} />
+              <span>Retry Assessment (New Question)</span>
+            </button>
 
-      {/* Action Button */}
-      <button onClick={onFinishSummary} className="btn btn-primary" style={{ padding: '14px', fontSize: '1rem', marginTop: '4px' }}>
-        <span>Return to Dashboard</span>
-        <ArrowRight size={18} />
-      </button>
+            <button
+              onClick={onReturnToStudy}
+              className="btn btn-secondary"
+              style={{ flex: 1, padding: '14px', fontSize: '0.92rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <BookOpen size={18} color="var(--primary)" />
+              <span>Return to AI Tutor Workspace</span>
+            </button>
+          </div>
+
+          <button
+            onClick={onFinishSummary}
+            className="btn"
+            style={{
+              padding: '10px',
+              fontSize: '0.8rem',
+              background: 'transparent',
+              border: '1px solid var(--glass-border)',
+              color: 'var(--text-dim)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            <span>Exit Session (Unmastered — Score Below 50%)</span>
+          </button>
+        </div>
+      ) : (
+        <button onClick={onFinishSummary} className="btn btn-primary" style={{ padding: '14px', fontSize: '1rem', marginTop: '4px' }}>
+          <span>Complete Session & Return to Dashboard</span>
+          <ArrowRight size={18} />
+        </button>
+      )}
     </div>
   );
 }
-

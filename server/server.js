@@ -58,8 +58,8 @@ app.use((err, req, res, next) => {
 // Connect DB & Start Server with automatic port fallback
 connectDB().then(() => {
   const startServerOnPort = (portToTry) => {
-    const server = app.listen(portToTry, () => {
-      console.log(`[StudyShield Server] Running on http://localhost:${portToTry}`);
+    const server = app.listen(portToTry, '0.0.0.0', () => {
+      console.log(`[StudyShield Server] Running on http://127.0.0.1:${portToTry}`);
     });
 
     server.on('error', (err) => {

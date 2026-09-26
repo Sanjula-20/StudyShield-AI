@@ -1,31 +1,79 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Clock, Bot, Youtube, FileText, Lock, Play, Pause, Send, Plus, Trash2, X, AlertTriangle, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
+/**
+ * BROWSER SECURITY LIMITATION NOTICE:
+ * In standard desktop web applications (running inside Google Chrome, Firefox, Edge, Safari),
+ * client-side JavaScript execution is sandboxed within the current tab origin (e.g. localhost:3000).
+ * Same-origin browser security policies prevent client-side web scripts from programmatically
+ * closing, modifying, or blocking external tabs opened directly in the user's browser (e.g. youtube.com or instagram.com).
+ *
+ * To enforce web focus, StudyShield implements:
+ * 1. Real tab-switch detection via Page Visibility API (`visibilitychange` / `document.hidden`).
+ * 2. Real window-focus loss detection (`blur` / `focus`).
+ * 3. Event deduplication using a timestamp lock to prevent double-counting single user actions.
+ * 4. Progressive violation tracking (0 = ACTIVE, 1-2 = Warning Modal on return, 3 = AUTO-PAUSE session & stop timer).
+ * 5. Persistent timestamp-based real study timer (restored on page refresh via localStorage).
+ * 6. Controlled Educational YouTube Search inside StudyShield to keep students focused.
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, Clock, Bot, Youtube, FileText, Lock, Play, Pause, Send, Plus, Trash2, X, AlertTriangle, RefreshCw, Smartphone, Globe } from 'lucide-react';
 import { api } from '../api';
 
+const ACTIVE_SESSION_STORAGE_KEY = 'studyshield_active_session';
+
 const SYSTEM_APPS = [
-  { id: 'com.instagram.android', name: 'Instagram', icon: '📷', category: 'Social Media' },
-  { id: 'com.snapchat.android', name: 'Snapchat', icon: '👻', category: 'Social Media' },
-  { id: 'com.google.android.youtube', name: 'YouTube App', icon: '▶️', category: 'Video Streaming' },
-  { id: 'com.supercell.clashofclans', name: 'Clash of Clans', icon: '🎮', category: 'Gaming' },
-  { id: 'com.zhiliaoapp.musically', name: 'TikTok', icon: '🎵', category: 'Short Video' },
-  { id: 'com.android.chrome', name: 'Chrome Browser', icon: '🌐', category: 'Web Browsing' }
+  { id: 'instagram.com', name: 'Instagram', icon: '📷', category: 'Social Media Website', type: 'WEBSITE' },
+  { id: 'youtube.com', name: 'YouTube (Unrestricted)', icon: '▶️', category: 'Video Streaming Website', type: 'WEBSITE' },
+  { id: 'snapchat.com', name: 'Snapchat', icon: '👻', category: 'Social Media Website', type: 'WEBSITE' },
+  { id: 'tiktok.com', name: 'TikTok', icon: '🎵', category: 'Short Video Website', type: 'WEBSITE' },
+  { id: 'facebook.com', name: 'Facebook', icon: '📘', category: 'Social Media Website', type: 'WEBSITE' },
+  { id: 'twitter.com', name: 'Twitter / X', icon: '🐦', category: 'Social Media Website', type: 'WEBSITE' },
+  { id: 'com.supercell.clashofclans', name: 'Clash of Clans', icon: '🎮', category: 'Gaming App', type: 'APP' },
+  { id: 'com.android.chrome', name: 'Chrome Browser', icon: '🌐', category: 'Web Browsing', type: 'APP' }
 ];
 
 export default function FocusModeView({ session, onSessionCompleted, onCancelSession, isPhoneFrame }) {
-  const [activeTab, setActiveTab] = useState('tutor'); // 'tutor' | 'youtube' | 'notes'
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const sessId = session._id || session.id;
+
+  // Session Status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED'
+  const [sessionStatus, setSessionStatus] = useState('ACTIVE');
+  const sessionStatusRef = useRef('ACTIVE');
+
+  useEffect(() => {
+    sessionStatusRef.current = sessionStatus;
+  }, [sessionStatus]);
   
-  // Real-time Native App Interception State
+  // Timestamps for real timer persistence
+  const [startTimeMs, setStartTimeMs] = useState(Date.now());
+  const [accumulatedPauseMs, setAccumulatedPauseMs] = useState(0);
+  const [pausedAtMs, setPausedAtMs] = useState(null);
+
+  // Focus Violations: { count: number, events: [] }
+  const [focusViolations, setFocusViolations] = useState({ count: 0, events: [] });
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [showPausedModal, setShowPausedModal] = useState(false);
+
+  // Time & Timer state
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Tab & In-App UI state
+  const [activeTab, setActiveTab] = useState('tutor'); // 'tutor' | 'youtube' | 'notes' | 'browser'
   const [blockedOverlayApp, setBlockedOverlayApp] = useState(null);
-  const [customPackageInput, setCustomPackageInput] = useState('');
   const [activeForegroundPkg, setActiveForegroundPkg] = useState('com.studyshield.app');
+
+  // In-App Restricted Web Browser State
+  const [browserUrlInput, setBrowserUrlInput] = useState('https://wikipedia.org');
+  const [browserActiveUrl, setBrowserActiveUrl] = useState('https://wikipedia.org');
+  const [browserBlocked, setBrowserBlocked] = useState(false);
+  const [browserBlockedDomain, setBrowserBlockedDomain] = useState('');
+
+  // Deduplication lock timestamp ref (500ms debounce)
+  const lastViolationTimeRef = useRef(0);
 
   // AI Tutor State
   const [tutorMessages, setTutorMessages] = useState([
     {
       role: 'assistant',
-      content: `Hello! I'm your StudyShield AI Tutor for **${session.topic}**.\n\nYour goal: *"${session.learningGoal || 'Master concepts'}"*.\n\nAsk me any question or request code examples!`
+      content: `Hello! 👋 I'm your StudyShield AI Tutor for **${session.topic}**.\n\nTarget Goal: **"${(session.learningGoal || 'Master concepts').replace(/^["'\s]+|["'\s]+$/g, '')}"**\n\nHow can I help you today? You can ask me to explain concepts, write code snippets, solve math problems, or test your knowledge!`
     }
   ]);
   const [tutorInput, setTutorInput] = useState('');
@@ -47,26 +95,284 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
   const [noteContent, setNoteContent] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
 
-  // Timer Effect
+  // 1. INITIAL SESSION MOUNT & REFRESH RESTORATION
   useEffect(() => {
-    let interval = null;
-    if (!isPaused) {
-      interval = setInterval(() => {
-        setElapsedSeconds(prev => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isPaused]);
+    const stored = localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY);
+    let start = Date.now();
+    let accPause = 0;
+    let pauseAt = null;
+    let status = 'ACTIVE';
+    let violations = { count: 0, events: [] };
 
-  // Initial Data Load
-  useEffect(() => {
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && (parsed.sessionId === sessId || parsed._id === sessId || parsed.id === sessId)) {
+          start = parsed.startTimeMs || start;
+          accPause = parsed.accumulatedPauseMs || 0;
+          pauseAt = parsed.pausedAtMs || null;
+          status = parsed.status || 'ACTIVE';
+          violations = parsed.focusViolations || { count: 0, events: [] };
+        }
+      } catch (e) {
+        console.error('Failed to parse localStorage active session', e);
+      }
+    }
+
+    setStartTimeMs(start);
+    setAccumulatedPauseMs(accPause);
+    setPausedAtMs(pauseAt);
+    setSessionStatus(status);
+    setFocusViolations(violations);
+
+    if (violations.count >= 3) {
+      handleAutoEndOnViolationLimit(violations);
+      return;
+    }
+
+    attemptFullscreen();
+
     loadNotes();
     loadVideos(session.topic);
-  }, [session._id]);
+  }, [sessId]);
 
+  const attemptFullscreen = () => {
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.warn('Fullscreen permission denied or unsupported:', err.message);
+      });
+    }
+  };
+
+  // Helper to persist active session snapshot to localStorage
+  const saveSessionToStorage = (updatedFields = {}) => {
+    const snapshot = {
+      sessionId: sessId,
+      _id: sessId,
+      topic: session.topic,
+      subtopic: session.subtopic,
+      learningGoal: session.learningGoal,
+      plannedDuration: session.plannedDuration,
+      startTimeMs,
+      accumulatedPauseMs,
+      pausedAtMs,
+      status: sessionStatus,
+      focusViolations,
+      ...updatedFields
+    };
+    localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+  };
+
+  // 2. REAL TIMESTAMP TIMER ENGINE
+  useEffect(() => {
+    let interval = null;
+
+    const calcElapsed = () => {
+      let effectiveMs = 0;
+      if (sessionStatus === 'ACTIVE') {
+        effectiveMs = Date.now() - startTimeMs - accumulatedPauseMs;
+      } else {
+        effectiveMs = (pausedAtMs || Date.now()) - startTimeMs - accumulatedPauseMs;
+      }
+      const secs = Math.max(0, Math.floor(effectiveMs / 1000));
+      setElapsedSeconds(secs);
+    };
+
+    calcElapsed();
+
+    if (sessionStatus === 'ACTIVE') {
+      interval = setInterval(() => {
+        calcElapsed();
+        saveSessionToStorage();
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [sessionStatus, startTimeMs, accumulatedPauseMs, pausedAtMs]);
+
+  // 3. EVENT DEDUPLICATION & REAL FOCUS MONITORING
+  const recordViolation = (type) => {
+    if (sessionStatusRef.current !== 'ACTIVE') return;
+
+    const now = Date.now();
+    // 500ms lock window deduplication (prevents blur + visibilitychange double counting)
+    if (now - lastViolationTimeRef.current < 500) {
+      return;
+    }
+    lastViolationTimeRef.current = now;
+
+    const eventObj = { type, timestamp: new Date().toISOString() };
+
+    setFocusViolations(prev => {
+      if (prev.count >= 3) {
+        return { count: 3, events: prev.events };
+      }
+
+      const nextCount = Math.min(3, prev.count + 1);
+      const nextEvents = [...prev.events, eventObj];
+      const nextViolations = { count: nextCount, events: nextEvents };
+
+      saveSessionToStorage({ focusViolations: nextViolations });
+
+      if (nextCount >= 3) {
+        handleAutoEndOnViolationLimit(nextViolations);
+      } else {
+        setShowWarningModal(true);
+      }
+      return nextViolations;
+    });
+  };
+
+  // Automatic End Session when 3 violations limit is reached
+  const handleAutoEndOnViolationLimit = async (violations) => {
+    setSessionStatus('CANCELLED');
+    sessionStatusRef.current = 'CANCELLED';
+    setShowWarningModal(false);
+    setShowPausedModal(false);
+
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+
+    const actualMins = Math.max(1, Math.round(elapsedSeconds / 60));
+
+    try {
+      await api.cancelSession(sessId, actualMins);
+    } catch (e) {
+      console.error('Failed to sync cancelled session status with backend', e);
+    } finally {
+      if (onCancelSession) {
+        onCancelSession(sessId, actualMins);
+      } else if (onSessionCompleted) {
+        onSessionCompleted(sessId, actualMins, true);
+      }
+    }
+  };
+
+  // 4. CLEAN EVENT LISTENERS SETUP & CLEANUP
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if ((document.hidden || document.visibilityState === 'hidden') && sessionStatusRef.current === 'ACTIVE') {
+        recordViolation('TAB_SWITCH');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      if (sessionStatusRef.current === 'ACTIVE') {
+        recordViolation('WINDOW_BLUR');
+      }
+    };
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement && sessionStatusRef.current === 'ACTIVE') {
+        recordViolation('FULLSCREEN_EXIT');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // 5. RESUME FOCUS HANDLER
+  const handleResumeFocus = async () => {
+    const now = Date.now();
+    let additionalPause = 0;
+    if (pausedAtMs) {
+      additionalPause = now - pausedAtMs;
+    }
+    const nextAccPause = accumulatedPauseMs + additionalPause;
+
+    setAccumulatedPauseMs(nextAccPause);
+    setPausedAtMs(null);
+    setSessionStatus('ACTIVE');
+    setShowWarningModal(false);
+    setShowPausedModal(false);
+
+    attemptFullscreen();
+
+    const actualMins = Math.max(1, Math.round(elapsedSeconds / 60));
+    try {
+      await api.updateSessionStatus(sessId, 'ACTIVE', actualMins);
+    } catch (e) {
+      console.error('Failed to sync active status with backend', e);
+    }
+
+    saveSessionToStorage({
+      status: 'ACTIVE',
+      pausedAtMs: null,
+      accumulatedPauseMs: nextAccPause
+    });
+  };
+
+  // 6. TOGGLE MANUAL PAUSE/RESUME
+  const handleToggleManualPause = async () => {
+    if (sessionStatus === 'ACTIVE') {
+      const now = Date.now();
+      setSessionStatus('PAUSED');
+      setPausedAtMs(now);
+      const actualMins = Math.max(1, Math.round(elapsedSeconds / 60));
+      try {
+        await api.updateSessionStatus(sessId, 'PAUSED', actualMins);
+      } catch (e) {}
+      saveSessionToStorage({ status: 'PAUSED', pausedAtMs: now });
+    } else {
+      handleResumeFocus();
+    }
+  };
+
+  // 7. END SESSION HANDLER
+  const handleEndSession = async (isCompleted = true) => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+
+    localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+
+    const plannedSecs = (session.plannedDuration || 45) * 60;
+    const actualMins = Math.max(1, Math.round(elapsedSeconds / 60));
+    const isEarly = elapsedSeconds < plannedSecs;
+
+    try {
+      if (isCompleted) {
+        await api.completeSession(sessId, actualMins, isEarly);
+      } else {
+        await api.cancelSession(sessId, actualMins);
+      }
+    } catch (e) {
+      console.error('Failed to update final session state', e);
+    } finally {
+      if (isCompleted && onSessionCompleted) {
+        onSessionCompleted(sessId, actualMins, isEarly);
+      } else if (onCancelSession) {
+        onCancelSession(sessId, actualMins);
+      }
+    }
+  };
+
+  // Calculate Timer Displays
+  const plannedSeconds = (session.plannedDuration || 45) * 60;
+  const remainingSeconds = Math.max(0, plannedSeconds - elapsedSeconds);
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Data Handlers
   const loadNotes = async () => {
     try {
-      const data = await api.getNotes(session._id, session.topic);
+      const data = await api.getNotes(sessId, session.topic);
       setNotes(data.notes || []);
     } catch (err) {
       console.error('Failed to load notes', err);
@@ -99,7 +405,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
     setSavingVideoNote(true);
     try {
       await api.createNote({
-        sessionId: session._id,
+        sessionId: sessId,
         topic: session.topic,
         title: `Video Note: ${video.title.substring(0, 30)}...`,
         content: `${quickVideoNote.trim()}\n\n[Reference Video: ${video.title} (${video.channelTitle})]`
@@ -113,27 +419,29 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
     }
   };
 
+  const handleNavigateInAppBrowser = (targetUrl) => {
+    const raw = targetUrl.trim().toLowerCase();
+    if (!raw) return;
 
-  // Real-time OS Package Switcher Intercept Handler
-  const handleSimulateAppSwitch = (app) => {
-    setActiveForegroundPkg(app.id);
-    const blockedAppsList = session.blockedApps || ['Instagram', 'YouTube', 'Snapchat', 'Games', 'TikTok'];
+    const cleanDomain = raw.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+    const blockedAppsList = session.blockedApps || ['Instagram', 'YouTube', 'Snapchat', 'Games', 'TikTok', 'Twitter'];
+    const blockedWebsitesList = session.blockedWebsites || ['instagram.com', 'youtube.com', 'tiktok.com', 'snapchat.com', 'twitter.com', 'facebook.com'];
 
-    // Check if package name or label matches restricted list
-    const isRestricted = blockedAppsList.some(b =>
-      app.name.toLowerCase().includes(b.toLowerCase()) ||
-      app.id.toLowerCase().includes(b.toLowerCase()) ||
-      b.toLowerCase().includes(app.name.toLowerCase())
-    );
+    const isRestricted = blockedAppsList.some(b => cleanDomain.includes(b.toLowerCase()) || b.toLowerCase().includes(cleanDomain)) ||
+      blockedWebsitesList.some(b => cleanDomain.includes(b.toLowerCase()) || b.toLowerCase().includes(cleanDomain)) ||
+      /instagram|youtube|tiktok|snapchat|facebook|twitter|reddit|netflix/.test(cleanDomain);
 
     if (isRestricted) {
-      setBlockedOverlayApp(app);
+      setBrowserBlocked(true);
+      setBrowserBlockedDomain(cleanDomain);
+      setBrowserActiveUrl(raw);
     } else {
-      setBlockedOverlayApp(null);
+      setBrowserBlocked(false);
+      setBrowserBlockedDomain('');
+      setBrowserActiveUrl(raw.startsWith('http') ? raw : `https://${raw}`);
     }
   };
 
-  // AI Tutor Submit
   const handleSendTutorMessage = async (e) => {
     e.preventDefault();
     if (!tutorInput.trim() || tutorLoading) return;
@@ -149,7 +457,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
         subtopic: session.subtopic,
         learningGoal: session.learningGoal,
         message: userText,
-        sessionId: session._id
+        sessionId: sessId
       });
       setTutorMessages(prev => [...prev, { role: 'assistant', content: response.reply }]);
     } catch (err) {
@@ -159,7 +467,6 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
     }
   };
 
-  // Save Note
   const handleSaveNote = async (e) => {
     e.preventDefault();
     if (!noteContent.trim() || noteSaving) return;
@@ -170,7 +477,7 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
         topic: session.topic,
         title: noteTitle || `${session.topic} Key Takeaway`,
         content: noteContent,
-        sessionId: session._id
+        sessionId: sessId
       });
       setNoteTitle('');
       setNoteContent('');
@@ -182,7 +489,6 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
     }
   };
 
-  // Delete Note
   const handleDeleteNote = async (id) => {
     try {
       await api.deleteNote(id);
@@ -192,117 +498,80 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
     }
   };
 
-  // Timer Calculations
-  const plannedSeconds = (session.plannedDuration || 45) * 60;
-  const remainingSeconds = Math.max(0, plannedSeconds - elapsedSeconds);
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const actualMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
-
-  const handleTogglePause = async () => {
-    const nextPauseState = !isPaused;
-    setIsPaused(nextPauseState);
-    const nextStatus = nextPauseState ? 'PAUSED' : 'ACTIVE';
-    try {
-      await api.updateSessionStatus(session._id, nextStatus, actualMinutes);
-    } catch (err) {
-      console.error('Failed to sync session status', err);
-    }
-  };
-
-  const handleFinishEarly = async () => {
-    const sessId = session._id || session.id;
-    const isEarly = elapsedSeconds < plannedSeconds;
-    try {
-      await api.updateSessionStatus(sessId, isEarly ? 'EARLY_COMPLETED' : 'COMPLETED', actualMinutes);
-    } catch (err) {
-      console.error('Failed to complete session status', err);
-    } finally {
-      if (onSessionCompleted) {
-        onSessionCompleted(sessId, actualMinutes, isEarly);
-      } else if (onCancelSession) {
-        onCancelSession();
-      }
-    }
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', maxWidth: '1100px', margin: '0 auto' }}>
-      {/* REAL NATIVE ANDROID BLOCKING ACTIVITY OVERLAY */}
-      {blockedOverlayApp && (
+      
+      {/* 1. WARNING MODAL FOR VIOLATIONS 1 OR 2 */}
+      {showWarningModal && sessionStatus === 'ACTIVE' && focusViolations.count < 3 && (
         <div style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: '#0F172A',
-          zIndex: 9999,
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9998,
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           padding: '24px',
           textAlign: 'center'
         }}>
-          <div style={{
-            width: '72px',
-            height: '72px',
-            borderRadius: '50%',
-            background: 'rgba(244, 63, 94, 0.2)',
-            border: '2px solid #f43f5e',
-            margin: '0 auto 20px auto',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 0 30px rgba(244, 63, 94, 0.4)'
-          }}>
-            <Lock size={36} color="#fb7185" />
+          <div className="glass-panel glass-glow" style={{ maxWidth: '440px', width: '100%', padding: '28px' }}>
+            <div style={{
+              width: '64px', height: '64px', borderRadius: '50%',
+              background: 'rgba(245, 158, 11, 0.2)', border: '2px solid #f59e0b',
+              margin: '0 auto 16px auto', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}>
+              <AlertTriangle size={32} color="#fbbf24" />
+            </div>
+
+            <span className="badge badge-amber" style={{ marginBottom: '10px' }}>
+              FOCUS MODE WARNING
+            </span>
+
+            <h3 style={{ fontSize: '1.4rem', fontWeight: '800', margin: '8px 0', color: '#fff' }}>
+              You Left StudyShield
+            </h3>
+
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.5', marginBottom: '20px' }}>
+              You left StudyShield during your active study session for <strong>{session.topic}</strong>.
+            </p>
+
+            <div style={{
+              background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)',
+              padding: '10px 14px', borderRadius: '8px', fontSize: '0.85rem', color: '#fbbf24',
+              marginBottom: '24px', fontWeight: '700'
+            }}>
+              Focus Violations: {focusViolations.count} / 3
+            </div>
+
+            <button
+              onClick={() => {
+                setShowWarningModal(false);
+                attemptFullscreen();
+              }}
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px', fontSize: '0.95rem' }}
+            >
+              Return to Study
+            </button>
           </div>
-
-          <span className="badge badge-rose" style={{ marginBottom: '14px', fontSize: '0.8rem', padding: '6px 14px' }}>
-            Android Focus Mode Active
-          </span>
-
-          <h2 style={{ fontSize: '1.8rem', fontWeight: '800', margin: '8px 0', color: '#fff' }}>
-            {blockedOverlayApp.name} ({blockedOverlayApp.icon}) Restricted
-          </h2>
-
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', maxWidth: '380px', lineHeight: '1.6', marginBottom: '24px' }}>
-            You are currently studying:<br />
-            <strong style={{ color: 'var(--primary)', fontSize: '1.1rem' }}>{session.topic}</strong>
-            <br /><br />
-            Package: <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{blockedOverlayApp.id}</code>
-          </p>
-
-          <div style={{ background: 'rgba(30, 41, 59, 0.8)', padding: '12px 18px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', fontSize: '0.82rem', color: 'var(--text-dim)', marginBottom: '28px', maxWidth: '380px' }}>
-            Intercepted via Android AccessibilityService & UsageStatsManager Policy.
-          </div>
-
-          <button
-            onClick={() => {
-              setBlockedOverlayApp(null);
-              setActiveForegroundPkg('com.studyshield.app');
-            }}
-            className="btn btn-primary"
-            style={{ padding: '14px 28px', fontSize: '1rem', minWidth: '280px' }}
-          >
-            Return to StudyShield Workspace
-          </button>
         </div>
       )}
+
+
 
       {/* Top Header Bar with Live Timer & Controls */}
       <div className="glass-panel" style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <span className="badge badge-cyan">Focus Active</span>
+              <span className={`badge ${sessionStatus === 'ACTIVE' ? 'badge-cyan' : 'badge-amber'}`}>
+                {sessionStatus === 'ACTIVE' ? 'Focus Active' : 'Focus Paused'}
+              </span>
               <span className="badge badge-purple">{session.topic}</span>
+              <span className={`badge ${focusViolations.count > 0 ? 'badge-rose' : 'badge-emerald'}`}>
+                Focus Violations: {Math.min(3, focusViolations.count)} / 3
+              </span>
             </div>
             <h2 style={{ fontSize: '1.35rem', fontWeight: '800', margin: 0 }}>
               {session.topic} {session.subtopic ? `• ${session.subtopic}` : ''}
@@ -315,72 +584,28 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Remaining Time</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: '800', color: 'var(--primary)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: '800', color: sessionStatus === 'ACTIVE' ? 'var(--primary)' : '#fbbf24' }}>
                 {formatTime(remainingSeconds)}
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={handleTogglePause}
+                onClick={handleToggleManualPause}
                 className="btn btn-secondary"
                 style={{ padding: '10px 14px' }}
+                title={sessionStatus === 'ACTIVE' ? 'Pause Session' : 'Resume Session'}
               >
-                {isPaused ? <Play size={18} color="var(--emerald)" /> : <Pause size={18} />}
+                {sessionStatus === 'ACTIVE' ? <Pause size={18} /> : <Play size={18} color="var(--emerald)" />}
               </button>
               <button
-                onClick={handleFinishEarly}
+                onClick={() => handleEndSession(true)}
                 className="btn btn-accent"
                 style={{ padding: '10px 16px', fontSize: '0.85rem' }}
               >
                 Finish & Take Assessment
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* REAL-TIME OS APP SWITCHER INTERCEPTION MONITOR */}
-        <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--glass-border)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <div style={{ fontSize: '0.78rem', fontWeight: '800', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Smartphone size={16} /> Real-Time OS Package Switcher (Test Native Interception):
-            </div>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              Foreground: <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--emerald)' }}>{activeForegroundPkg}</code>
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-            {SYSTEM_APPS.map(app => {
-              const isRestricted = (session.blockedApps || ['Instagram', 'YouTube', 'Snapchat', 'Games', 'TikTok']).some(b =>
-                app.name.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(app.name.toLowerCase())
-              );
-              return (
-                <button
-                  key={app.id}
-                  onClick={() => handleSimulateAppSwitch(app)}
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: '600',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    background: isRestricted ? 'rgba(244, 63, 94, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                    border: `1px solid ${isRestricted ? 'rgba(244, 63, 94, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                    color: isRestricted ? '#fb7185' : '#34d399',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                  title={isRestricted ? `Restricted! Intercepts ${app.id}` : `Allowed App`}
-                >
-                  <span>{app.icon}</span>
-                  <span>{app.name}</span>
-                  {isRestricted ? <span>🔒</span> : <span>✓</span>}
-                </button>
-              );
-            })}
           </div>
         </div>
       </div>
@@ -420,11 +645,20 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
               <FileText size={18} />
               <span>Study Notes</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('browser')}
+              className={`btn ${activeTab === 'browser' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ justifyContent: 'flex-start', padding: '10px 14px' }}
+            >
+              <Globe size={18} />
+              <span>In-App Web Browser</span>
+            </button>
           </div>
 
           <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--glass-border)' }}>
             <button
-              onClick={() => onCancelSession(session._id, actualMinutes)}
+              onClick={() => handleEndSession(false)}
               className="btn btn-danger"
               style={{ width: '100%', padding: '10px', fontSize: '0.82rem' }}
             >
@@ -470,56 +704,94 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                     <div>
                       {(() => {
                         if (!msg.content) return null;
-                        const lines = msg.content.split('\n');
+                        const cleaned = msg.content
+                          .replace(/\\"/g, '"')
+                          .replace(/\\'/g, "'")
+                          .replace(/\*"\s*(.*?)\s*"\*/g, '"$1"')
+                          .replace(/\*'\s*(.*?)\s*'\*/g, "'$1'")
+                          .replace(/\\\//g, '/')
+                          .replace(/\\\\/g, '\\');
+
+                        const blocks = cleaned.split(/(```[\s\S]*?```)/g);
+
                         return (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            {lines.map((line, idx) => {
-                              let trimmed = line.trim();
-                              if (!trimmed) return <div key={idx} style={{ height: '4px' }} />;
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                            {blocks.map((block, bIdx) => {
+                              if (block.startsWith('```') && block.endsWith('```')) {
+                                const firstLineEnd = block.indexOf('\n');
+                                const codeText = firstLineEnd !== -1 ? block.slice(firstLineEnd + 1, -3) : block.slice(3, -3);
+                                const lang = firstLineEnd !== -1 ? block.slice(3, firstLineEnd).trim() : '';
 
-                              // Headers ### or ## or #
-                              if (trimmed.startsWith('#')) {
-                                const headerText = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/\$/g, '');
                                 return (
-                                  <div key={idx} style={{ fontWeight: '700', fontSize: '0.92rem', color: 'var(--primary)', marginTop: '6px', marginBottom: '2px' }}>
-                                    {headerText}
+                                  <div key={bIdx} style={{ margin: '6px 0', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.1)', background: '#090d16' }}>
+                                    {lang && (
+                                      <div style={{ background: 'rgba(255, 255, 255, 0.05)', padding: '4px 10px', fontSize: '0.68rem', fontWeight: '700', color: 'var(--accent)', textTransform: 'uppercase' }}>
+                                        {lang}
+                                      </div>
+                                    )}
+                                    <pre style={{ margin: 0, padding: '10px 12px', overflowX: 'auto', fontSize: '0.8rem', fontFamily: 'monospace', color: '#e2e8f0', lineHeight: '1.4' }}>
+                                      <code>{codeText.trim()}</code>
+                                    </pre>
                                   </div>
                                 );
                               }
 
-                              // Code block demarcators ```
-                              if (trimmed.startsWith('```')) {
-                                return null;
-                              }
-
-                              // Bullet list item
-                              const isBullet = trimmed.startsWith('- ') || trimmed.startsWith('* ');
-                              if (isBullet) {
-                                trimmed = trimmed.replace(/^[-*]\s*/, '');
-                              }
-
-                              // Parse bold **text**
-                              const parts = trimmed.split(/(\*\*.*?\*\*)/g);
-                              const elements = parts.map((part, pIdx) => {
-                                if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-                                  return <strong key={pIdx} style={{ color: 'var(--text-main)', fontWeight: '700' }}>{part.slice(2, -2)}</strong>;
-                                }
-                                return part.replace(/\$/g, '');
-                              });
-
-                              if (isBullet) {
-                                return (
-                                  <div key={idx} style={{ display: 'flex', gap: '6px', marginLeft: '6px' }}>
-                                    <span style={{ color: 'var(--primary)', fontWeight: 'bold' }}>•</span>
-                                    <div>{elements}</div>
-                                  </div>
-                                );
-                              }
-
+                              const lines = block.split('\n');
                               return (
-                                <div key={idx}>
-                                  {elements}
-                                </div>
+                                <React.Fragment key={bIdx}>
+                                  {lines.map((line, lIdx) => {
+                                    let trimmed = line.trim();
+                                    if (!trimmed) return <div key={lIdx} style={{ height: '4px' }} />;
+
+                                    if (trimmed.startsWith('#')) {
+                                      const headerText = trimmed.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/\$/g, '');
+                                      return (
+                                        <div key={lIdx} style={{ fontWeight: '700', fontSize: '0.92rem', color: 'var(--primary)', marginTop: '6px', marginBottom: '2px' }}>
+                                          {headerText}
+                                        </div>
+                                      );
+                                    }
+
+                                    const isBullet = /^(?:[-*]|\d+\.)\s+/.test(trimmed);
+                                    let listSymbol = '•';
+                                    if (isBullet) {
+                                      const numMatch = trimmed.match(/^(\d+\.)\s+/);
+                                      if (numMatch) {
+                                        listSymbol = numMatch[1];
+                                      }
+                                      trimmed = trimmed.replace(/^(?:[-*]|\d+\.)\s+/, '');
+                                    }
+
+                                    const inlineTokens = trimmed.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
+                                    const elements = inlineTokens.map((token, tIdx) => {
+                                      if (token.startsWith('**') && token.endsWith('**') && token.length > 4) {
+                                        return <strong key={tIdx} style={{ color: 'var(--text-main)', fontWeight: '700' }}>{token.slice(2, -2)}</strong>;
+                                      }
+                                      if (token.startsWith('*') && token.endsWith('*') && token.length > 2 && !token.startsWith('**')) {
+                                        return <em key={tIdx} style={{ color: 'var(--text-main)', fontStyle: 'italic' }}>{token.slice(1, -1)}</em>;
+                                      }
+                                      if (token.startsWith('`') && token.endsWith('`') && token.length > 2) {
+                                        return <code key={tIdx} style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '2px 5px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.82rem', color: '#38bdf8' }}>{token.slice(1, -1)}</code>;
+                                      }
+                                      return token.replace(/[\$\\]/g, '');
+                                    });
+
+                                    if (isBullet) {
+                                      return (
+                                        <div key={lIdx} style={{ display: 'flex', gap: '8px', marginLeft: '6px', alignItems: 'flex-start' }}>
+                                          <span style={{ color: 'var(--primary)', fontWeight: 'bold', fontSize: '0.85rem' }}>{listSymbol}</span>
+                                          <div style={{ flex: 1 }}>{elements}</div>
+                                        </div>
+                                      );
+                                    }
+
+                                    return (
+                                      <div key={lIdx}>
+                                        {elements}
+                                      </div>
+                                    );
+                                  })}
+                                </React.Fragment>
                               );
                             })}
                           </div>
@@ -560,13 +832,6 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                   >
                     🔍 Simplify
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => { setTutorInput('Compare with alternative approach'); }}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    ⚖️ Compare
-                  </button>
                 </div>
 
                 <form onSubmit={handleSendTutorMessage} style={{ display: 'flex', gap: '10px' }}>
@@ -596,221 +861,42 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                     <h3 style={{ fontSize: '1.05rem', fontWeight: '700', margin: 0 }}>Controlled Educational Search</h3>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
                       Topic: <span style={{ color: 'var(--primary)', fontWeight: '600' }}>{session.topic}</span>
-                      {session.subtopic && <span> • Subtopic: <span style={{ color: 'var(--accent)', fontWeight: '600' }}>{session.subtopic}</span></span>}
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span className="badge badge-cyan">Controlled API</span>
-                  <span className="badge badge-purple" style={{ fontSize: '0.7rem' }}>🔒 Key Secured</span>
-                </div>
+                <span className="badge badge-cyan">Controlled API</span>
               </div>
 
-              {/* Security & Scope Disclaimer Banner */}
+              {/* Disclaimer */}
               <div style={{
-                fontSize: '0.75rem',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                background: 'rgba(99, 102, 241, 0.08)',
-                border: '1px solid rgba(99, 102, 241, 0.2)',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
+                fontSize: '0.75rem', padding: '8px 12px', borderRadius: '8px',
+                background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)',
+                color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px'
               }}>
                 <Shield size={14} color="var(--primary)" />
-                <span>
-                  StudyShield isolates educational video search. Unrestricted YouTube browsing and non-academic recommendations are blocked.
-                </span>
+                <span>StudyShield isolates educational video search. Unrestricted YouTube browsing and non-academic recommendations are blocked.</span>
               </div>
 
-              {/* Fallback / Quota Status Notice */}
-              {ytMetadata?.isFallback && (
-                <div style={{
-                  fontSize: '0.75rem',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  border: '1px solid rgba(245, 158, 11, 0.3)',
-                  color: '#fbbf24',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justify: 'space-between'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <AlertTriangle size={14} />
-                    <span>{ytMetadata.message || 'Serving curated educational resources database.'}</span>
-                  </div>
-                  <span style={{ fontSize: '0.68rem', opacity: 0.8 }}>5 Filtered Items</span>
-                </div>
-              )}
-
-              {/* API Error Alert Banner */}
-              {ytError && (
-                <div style={{
-                  padding: '12px',
-                  borderRadius: '8px',
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  color: '#f87171',
-                  fontSize: '0.82rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justify: 'space-between'
-                }}>
-                  <span>{ytError}</span>
-                  <button
-                    onClick={() => loadVideos(ytQuery)}
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <RefreshCw size={12} /> Retry
-                  </button>
-                </div>
-              )}
-
-              {/* Search Bar & Educational Category Quick Chips */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
-                  <button
-                    type="button"
-                    onClick={() => { const q = `${session.topic} Full Lecture`; setYtQuery(q); loadVideos(q); }}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.3)', color: '#818cf8', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    🎓 Full Lecture
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { const q = `${session.topic} Visual Diagram`; setYtQuery(q); loadVideos(q); }}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    🎨 Visual Diagram
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { const q = `${session.topic} Crash Course`; setYtQuery(q); loadVideos(q); }}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(139, 92, 246, 0.15)', border: '1px solid rgba(139, 92, 246, 0.3)', color: '#c084fc', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    ⚡ Crash Course
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { const q = `${session.topic} Exercises`; setYtQuery(q); loadVideos(q); }}
-                    style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', color: '#fbbf24', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                  >
-                    ✏️ Exercises
-                  </button>
-                </div>
-
-                <form onSubmit={(e) => { e.preventDefault(); loadVideos(ytQuery); }} style={{ display: 'flex', gap: '10px' }}>
-                  <input
-                    type="text"
-                    placeholder={`Search educational videos for ${session.topic}...`}
-                    value={ytQuery}
-                    onChange={(e) => setYtQuery(e.target.value)}
-                    className="input-field"
-                    style={{ flex: 1 }}
-                  />
-                  <button type="submit" className="btn btn-secondary" style={{ padding: '0 18px' }} disabled={ytLoading}>
-                    {ytLoading ? 'Searching...' : 'Search'}
-                  </button>
-                </form>
-              </div>
-
-              {/* Active Embedded Video Player & Quick Note Integration */}
-              {activeVideo && (
-                <div className="glass-panel" style={{ padding: '14px', background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--primary)', borderRadius: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div>
-                      <div style={{ fontWeight: '700', fontSize: '0.9rem', color: '#fff' }}>{activeVideo.title}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Channel: {activeVideo.channelTitle} • Duration: {activeVideo.duration}</div>
-                    </div>
-                    <button
-                      onClick={() => setActiveVideo(null)}
-                      className="btn btn-secondary"
-                      style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <X size={14} /> Return to Study Workspace
-                    </button>
-                  </div>
-
-                  <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', borderRadius: '8px', marginBottom: '12px' }}>
-                    <iframe
-                      src={`https://www.youtube.com/embed/${activeVideo.videoId}?autoplay=1`}
-                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0 }}
-                      allowFullScreen
-                      title={activeVideo.title}
-                    ></iframe>
-                  </div>
-
-                  {/* Quick Note Taking Shortcut during Video Watch */}
-                  <div style={{ paddingTop: '10px', borderTop: '1px solid var(--glass-border)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      placeholder="Take a quick note while watching this video..."
-                      value={quickVideoNote}
-                      onChange={(e) => setQuickVideoNote(e.target.value)}
-                      className="input-field"
-                      style={{ flex: 1, fontSize: '0.8rem', padding: '6px 12px' }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveVideoNote(activeVideo); } }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleSaveVideoNote(activeVideo)}
-                      className="btn btn-primary"
-                      style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-                      disabled={savingVideoNote || !quickVideoNote.trim()}
-                    >
-                      {savingVideoNote ? 'Saving...' : 'Save Note'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Loading Indicator */}
               {ytLoading && (
                 <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                   Searching educational videos...
                 </div>
               )}
 
-              {/* Empty State when zero results returned */}
-              {!ytLoading && !ytError && ytVideos.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  No educational videos found for this topic query. Try broadening your query or selecting a filter chip above.
-                </div>
-              )}
-
-              {/* Video List (Approximately 5 Filtered Results) */}
+              {/* Video List */}
               {!ytLoading && (
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {ytVideos.map(video => (
                     <div
                       key={video.id}
                       style={{
-                        display: 'flex',
-                        gap: '12px',
-                        padding: '12px',
-                        borderRadius: 'var(--radius-sm)',
-                        background: 'rgba(15, 23, 42, 0.6)',
-                        border: '1px solid var(--glass-border)',
-                        transition: 'border-color 0.2s ease',
-                        alignItems: 'flex-start'
+                        display: 'flex', gap: '12px', padding: '12px', borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--glass-border)', alignItems: 'flex-start'
                       }}
                     >
                       <div style={{ position: 'relative', minWidth: '110px', width: '110px', height: '68px', borderRadius: '6px', overflow: 'hidden' }}>
                         <img src={video.thumbnail} alt={video.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <span style={{
-                          position: 'absolute',
-                          bottom: '4px',
-                          right: '4px',
-                          background: 'rgba(0, 0, 0, 0.8)',
-                          color: '#fff',
-                          fontSize: '0.65rem',
-                          fontWeight: '700',
-                          padding: '2px 5px',
-                          borderRadius: '4px'
-                        }}>
+                        <span style={{ position: 'absolute', bottom: '4px', right: '4px', background: 'rgba(0,0,0,0.8)', color: '#fff', fontSize: '0.65rem', fontWeight: '700', padding: '2px 5px', borderRadius: '4px' }}>
                           {video.duration || '15 mins'}
                         </span>
                       </div>
@@ -819,20 +905,8 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                           {video.title}
                         </h4>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                          {video.channelTitle} • Published: {video.publishedAt}
+                          {video.channelTitle}
                         </div>
-                        <p style={{
-                          fontSize: '0.73rem',
-                          color: 'var(--text-muted)',
-                          margin: '2px 0 6px 0',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          lineHeight: '1.3'
-                        }}>
-                          {video.description}
-                        </p>
                         <div style={{ marginTop: 'auto', display: 'flex', gap: '8px' }}>
                           <button
                             onClick={() => setActiveVideo(video)}
@@ -849,7 +923,6 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
               )}
             </div>
           )}
-
 
           {/* TAB 3: NOTES */}
           {activeTab === 'notes' && (
@@ -895,6 +968,108 @@ export default function FocusModeView({ session, onSessionCompleted, onCancelSes
                     <p style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>{note.content}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: IN-APP RESTRICTED WEB BROWSER */}
+          {activeTab === 'browser' && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Globe size={20} color="var(--primary)" />
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: '700', margin: 0 }}>In-App Intercepted Web Browser</h3>
+                </div>
+                <span className="badge badge-cyan">Real-Time Domain Interceptor</span>
+              </div>
+
+              {/* Quick URL Test Chips */}
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setBrowserUrlInput('https://youtube.com'); handleNavigateInAppBrowser('https://youtube.com'); }}
+                  style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', color: '#fb7185', cursor: 'pointer' }}
+                >
+                  ▶️ YouTube (Test Block)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setBrowserUrlInput('https://instagram.com'); handleNavigateInAppBrowser('https://instagram.com'); }}
+                  style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.3)', color: '#fb7185', cursor: 'pointer' }}
+                >
+                  📷 Instagram (Test Block)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setBrowserUrlInput('https://wikipedia.org'); handleNavigateInAppBrowser('https://wikipedia.org'); }}
+                  style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', cursor: 'pointer' }}
+                >
+                  🌐 Wikipedia (Allowed)
+                </button>
+              </div>
+
+              {/* Address Bar */}
+              <form onSubmit={(e) => { e.preventDefault(); handleNavigateInAppBrowser(browserUrlInput); }} style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  placeholder="Enter URL (e.g. youtube.com, instagram.com, wikipedia.org)..."
+                  value={browserUrlInput}
+                  onChange={(e) => setBrowserUrlInput(e.target.value)}
+                  className="input-field"
+                  style={{ flex: 1, fontSize: '0.85rem' }}
+                />
+                <button type="submit" className="btn btn-primary" style={{ padding: '0 16px', fontSize: '0.82rem' }}>
+                  Navigate
+                </button>
+              </form>
+
+              {/* Browser View */}
+              <div style={{ flex: 1, position: 'relative', borderRadius: '10px', overflow: 'hidden', border: '1px solid var(--glass-border)', minHeight: '340px' }}>
+                {browserBlocked ? (
+                  <div style={{
+                    width: '100%', height: '100%', background: '#0F172A',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    padding: '24px', textAlign: 'center'
+                  }}>
+                    <div style={{
+                      width: '64px', height: '64px', borderRadius: '50%',
+                      background: 'rgba(244, 63, 94, 0.2)', border: '2px solid #f43f5e', marginBottom: '16px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <Lock size={32} color="#fb7185" />
+                    </div>
+
+                    <span className="badge badge-rose" style={{ marginBottom: '10px', fontSize: '0.78rem' }}>
+                      🚫 ACCESS DENIED BY STUDYSHIELD POLICY
+                    </span>
+
+                    <h3 style={{ fontSize: '1.4rem', fontWeight: '800', margin: '6px 0', color: '#fff' }}>
+                      Website "{browserBlockedDomain.toUpperCase()}" Restricted
+                    </h3>
+
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '360px', lineHeight: '1.5', marginBottom: '20px' }}>
+                      Access to social media & video streaming sites (YouTube, Instagram, TikTok, Snapchat) is blocked while studying <strong>{session.topic}</strong>.
+                    </p>
+
+                    <button
+                      onClick={() => {
+                        setBrowserUrlInput('https://wikipedia.org');
+                        handleNavigateInAppBrowser('https://wikipedia.org');
+                      }}
+                      className="btn btn-secondary"
+                      style={{ padding: '10px 20px', fontSize: '0.85rem' }}
+                    >
+                      Return to Educational Wikipedia
+                    </button>
+                  </div>
+                ) : (
+                  <iframe
+                    src={browserActiveUrl}
+                    style={{ width: '100%', height: '100%', border: 0, background: '#fff' }}
+                    title="In-App Web Browser"
+                    sandbox="allow-scripts allow-same-origin allow-forms"
+                  />
+                )}
               </div>
             </div>
           )}

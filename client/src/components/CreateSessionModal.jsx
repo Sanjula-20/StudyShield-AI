@@ -21,9 +21,9 @@ const AVAILABLE_APPS = [
 ];
 
 export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }) {
-  const [topic, setTopic] = useState('Data Structures & Algorithms');
-  const [subtopic, setSubtopic] = useState('Binary Search Trees & Balancing');
-  const [learningGoal, setLearningGoal] = useState('Understand insertion, deletion, and AVL tree rotations.');
+  const [topic, setTopic] = useState('');
+  const [subtopic, setSubtopic] = useState('');
+  const [learningGoal, setLearningGoal] = useState('');
   const [plannedDuration, setPlannedDuration] = useState(45);
   const [selectedApps, setSelectedApps] = useState(['Instagram', 'YouTube', 'Snapchat', 'Games']);
   const [loading, setLoading] = useState(false);
@@ -55,7 +55,7 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
         learningGoal,
         plannedDuration,
         blockedApps: selectedApps,
-        blockedWebsites: ['instagram.com', 'tiktok.com', 'snapchat.com']
+        blockedWebsites: ['instagram.com', 'youtube.com', 'tiktok.com', 'snapchat.com', 'twitter.com', 'facebook.com']
       });
       onSessionStarted(data.session);
       onClose();
@@ -208,7 +208,7 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
               className="input-field"
               value={subtopic}
               onChange={(e) => setSubtopic(e.target.value)}
-              placeholder="e.g. Binary Search Trees & AVL Rotations"
+              placeholder="e.g. Binary Search Trees & Balancing"
             />
           </div>
 
@@ -222,7 +222,7 @@ export default function CreateSessionModal({ isOpen, onClose, onSessionStarted }
               className="input-field"
               value={learningGoal}
               onChange={(e) => setLearningGoal(e.target.value)}
-              placeholder="What specific concept will you master today?"
+              placeholder="e.g. Understand insertion, deletion, and AVL tree rotations"
             />
           </div>
 
